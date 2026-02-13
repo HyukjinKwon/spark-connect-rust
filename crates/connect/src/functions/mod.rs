@@ -35,12 +35,16 @@ where
     S: Into<Column>,
 {
     Column::from(spark::Expression {
+        #[cfg(feature = "spark-41")]
+        common: None,
         expr_type: Some(spark::expression::ExprType::UnresolvedFunction(
             spark::expression::UnresolvedFunction {
                 function_name: name.to_string(),
                 arguments: VecExpression::from_iter(args).into(),
                 is_distinct: false,
                 is_user_defined_function: false,
+                #[cfg(feature = "spark-41")]
+                is_internal: None,
             },
         )),
     })
@@ -55,6 +59,7 @@ macro_rules! gen_func {
             invoke_func(stringify!($func_name), empty_args)
         }
     };
+
 
     // case for any iterable of cols as a single argument
     ($func_name:ident, [cols : $param_type:ty ], $doc:expr) => {
@@ -158,6 +163,8 @@ pub fn bitwise_not(col: impl Into<Column>) -> Column {
 /// Parses the expression string into the column that it represents
 pub fn expr(val: &str) -> Column {
     Column::from(spark::Expression {
+        #[cfg(feature = "spark-41")]
+        common: None,
         expr_type: Some(spark::expression::ExprType::ExpressionString(
             spark::expression::ExpressionString {
                 expression: val.to_string(),
@@ -643,37 +650,18 @@ pub fn window(
     start_time: Option<&str>,
 ) -> Column {
     let window_duration = lit(window_duration);
-
-    if slide_duration.is_some() & start_time.is_some() {
-        invoke_func(
+    match (slide_duration, start_time) {
+        (Some(sd), Some(st)) => invoke_func(
             "window",
-            vec![
-                time_column.into(),
-                window_duration,
-                lit(slide_duration.unwrap()),
-                lit(start_time.unwrap()),
-            ],
-        )
-    } else if slide_duration.is_some() & start_time.is_none() {
-        invoke_func(
-            "window",
-            vec![
-                time_column.into(),
-                window_duration,
-                lit(slide_duration.unwrap()),
-            ],
-        )
-    } else if slide_duration.is_none() & start_time.is_some() {
-        invoke_func(
-            "window",
-            vec![
-                time_column.into(),
-                window_duration,
-                lit(start_time.unwrap()),
-            ],
-        )
-    } else {
-        invoke_func("window", vec![time_column.into(), window_duration])
+            vec![time_column.into(), window_duration, lit(sd), lit(st)],
+        ),
+        (Some(sd), None) => {
+            invoke_func("window", vec![time_column.into(), window_duration, lit(sd)])
+        }
+        (None, Some(st)) => {
+            invoke_func("window", vec![time_column.into(), window_duration, lit(st)])
+        }
+        (None, None) => invoke_func("window", vec![time_column.into(), window_duration]),
     }
 }
 
@@ -961,12 +949,16 @@ where
     expr.append(&mut cols);
 
     Column::from(spark::Expression {
+        #[cfg(feature = "spark-41")]
+        common: None,
         expr_type: Some(spark::expression::ExprType::UnresolvedFunction(
             spark::expression::UnresolvedFunction {
                 function_name: "count".to_string(),
                 arguments: VecExpression::from_iter(expr).into(),
                 is_distinct: true,
                 is_user_defined_function: false,
+                #[cfg(feature = "spark-41")]
+                is_internal: None,
             },
         )),
     })
@@ -1114,12 +1106,16 @@ gen_func!(sum, [col: Column], "Returns the sum of all values in the expression."
 /// "Returns the sum of distinct values in the expression."
 pub fn sum_distinct(col: impl Into<Column>) -> Column {
     Column::from(spark::Expression {
+        #[cfg(feature = "spark-41")]
+        common: None,
         expr_type: Some(spark::expression::ExprType::UnresolvedFunction(
             spark::expression::UnresolvedFunction {
                 function_name: "sum".to_string(),
                 arguments: VecExpression::from_iter(vec![col]).into(),
                 is_distinct: true,
                 is_user_defined_function: false,
+                #[cfg(feature = "spark-41")]
+                is_internal: None,
             },
         )),
     })
