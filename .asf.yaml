@@ -16,7 +16,7 @@
 # https://cwiki.apache.org/confluence/display/INFRA/git+-+.asf.yaml+features
 ---
 github:
-  description: "Apache Spark Connect for Rust"
+  description: "Apache Spark Connect Client for Rust (Rust core + Python wrapper)"
   homepage: "https://spark.apache.org/"
   labels:
     - spark
