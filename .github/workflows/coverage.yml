@@ -107,8 +107,9 @@ jobs:
             tar -xzf "/tmp/${PKG}.tgz" -C "${HOME}/spark-dist"
             rm -f "/tmp/${PKG}.tgz"
           fi
+          # The connect server jar (spark-connect_2.13) ships in the 4.x dist's jars/,
+          # so start-connect-server.sh loads it without a --packages Maven download.
           "${HOME}/spark-dist/${PKG}/sbin/start-connect-server.sh" \
-            --packages "org.apache.spark:spark-connect_2.13:4.2.0" \
             --driver-memory 3g \
             --conf spark.sql.session.localRelationSizeLimit=1073741824 \
             > /tmp/connect-server.log 2>&1 &
