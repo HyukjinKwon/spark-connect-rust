@@ -26,6 +26,8 @@ Arrow results in Rust, speaking the same protocol and returning the same results
 as the reference client.
 
 [![PyPI](https://img.shields.io/pypi/v/pyspark-client-rust?color=c2410c&label=pyspark-client-rust)](https://pypi.org/project/pyspark-client-rust/)
+[![Crates.io](https://img.shields.io/crates/v/apache-spark-connect?color=c2410c&label=apache-spark-connect)](https://crates.io/crates/apache-spark-connect)
+[![docs.rs](https://img.shields.io/docsrs/apache-spark-connect?color=c2410c&label=docs.rs)](https://docs.rs/apache-spark-connect)
 ![Spark](https://img.shields.io/badge/Apache%20Spark-4.2.0%2B-c2410c)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 <!-- Coverage badges are published by .github/workflows/coverage.yml to the `badges` branch. -->
@@ -40,6 +42,9 @@ as the reference client.
 Writing / Streaming / Catalog / Types API, [Rust UDFs via
 WebAssembly](https://apache.github.io/spark-connect-rust/udfs/), and the
 [architecture](https://apache.github.io/spark-connect-rust/architecture/).
+
+The **Rust API reference** (generated from the crate) is on
+[docs.rs/apache-spark-connect](https://docs.rs/apache-spark-connect).
 
 ## Install
 
