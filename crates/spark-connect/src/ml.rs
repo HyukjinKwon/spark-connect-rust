@@ -6986,6 +6986,16 @@ impl RegressionEvaluator {
         self
     }
 
+    pub fn set_weight_col(mut self, col: &str) -> Self {
+        self.params = self.params.set_param_string("weightCol", col);
+        self
+    }
+
+    pub fn set_through_origin(mut self, value: bool) -> Self {
+        self.params = self.params.set_param_bool("throughOrigin", value);
+        self
+    }
+
     /// The label column (default: "label").
     pub fn label_col(&self) -> &str {
         self.params.string_or("labelCol", "label")
@@ -6999,6 +7009,21 @@ impl RegressionEvaluator {
     /// The metric (default: "rmse").
     pub fn metric_name(&self) -> &str {
         self.params.string_or("metricName", "rmse")
+    }
+
+    /// The weight column, or None when it is not set or is set to null.
+    pub fn weight_col(&self) -> Option<&str> {
+        self.params.string_opt("weightCol")
+    }
+
+    /// Whether the regression is through the origin (default: false).
+    pub fn through_origin(&self) -> bool {
+        self.params.bool_or("throughOrigin", false)
+    }
+
+    /// Whether a larger metric is better, as the JVM's `isLargerBetter`: r2 and var are.
+    pub fn is_larger_better(&self) -> bool {
+        matches!(self.metric_name(), "r2" | "var")
     }
 
     /// Get mutable parameters, as estimators and transformers have them.
@@ -7065,6 +7090,17 @@ impl BinaryClassificationEvaluator {
         self
     }
 
+    pub fn set_weight_col(mut self, col: &str) -> Self {
+        self.params = self.params.set_param_string("weightCol", col);
+        self
+    }
+
+    /// Set the number of bins that down-samples the curves (0 for no down-sampling).
+    pub fn set_num_bins(mut self, bins: i32) -> Self {
+        self.params = self.params.set_param_int32("numBins", bins);
+        self
+    }
+
     /// The label column (default: "label").
     pub fn label_col(&self) -> &str {
         self.params.string_or("labelCol", "label")
@@ -7078,6 +7114,21 @@ impl BinaryClassificationEvaluator {
     /// The metric (default: "areaUnderROC").
     pub fn metric_name(&self) -> &str {
         self.params.string_or("metricName", "areaUnderROC")
+    }
+
+    /// The weight column, or None when it is not set or is set to null.
+    pub fn weight_col(&self) -> Option<&str> {
+        self.params.string_opt("weightCol")
+    }
+
+    /// The number of bins that down-samples the curves (default: 1000).
+    pub fn num_bins(&self) -> i32 {
+        self.params.int_or("numBins", 1000)
+    }
+
+    /// Whether a larger metric is better, as the JVM's `isLargerBetter`: both metrics are.
+    pub fn is_larger_better(&self) -> bool {
+        true
     }
 
     /// Get mutable parameters, as estimators and transformers have them.
@@ -7240,6 +7291,26 @@ impl MulticlassClassificationEvaluator {
         self.params = self.params.set_param_string("metricName", metric);
         self
     }
+    pub fn set_weight_col(mut self, col: &str) -> Self {
+        self.params = self.params.set_param_string("weightCol", col);
+        self
+    }
+    pub fn set_metric_label(mut self, label: f64) -> Self {
+        self.params = self.params.set_param_double("metricLabel", label);
+        self
+    }
+    pub fn set_beta(mut self, beta: f64) -> Self {
+        self.params = self.params.set_param_double("beta", beta);
+        self
+    }
+    pub fn set_probability_col(mut self, col: &str) -> Self {
+        self.params = self.params.set_param_string("probabilityCol", col);
+        self
+    }
+    pub fn set_eps(mut self, eps: f64) -> Self {
+        self.params = self.params.set_param_double("eps", eps);
+        self
+    }
     /// The label column (default: "label").
     pub fn label_col(&self) -> &str {
         self.params.string_or("labelCol", "label")
@@ -7251,6 +7322,34 @@ impl MulticlassClassificationEvaluator {
     /// The metric (default: "f1").
     pub fn metric_name(&self) -> &str {
         self.params.string_or("metricName", "f1")
+    }
+    /// The weight column, or None when it is not set or is set to null.
+    pub fn weight_col(&self) -> Option<&str> {
+        self.params.string_opt("weightCol")
+    }
+    /// The class whose by-label metric is computed (default: 0).
+    pub fn metric_label(&self) -> f64 {
+        self.params.double_or("metricLabel", 0.0)
+    }
+    /// The beta of the F-measures (default: 1).
+    pub fn beta(&self) -> f64 {
+        self.params.double_or("beta", 1.0)
+    }
+    /// The column of the probabilities, which logLoss reads (default: "probability").
+    pub fn probability_col(&self) -> &str {
+        self.params.string_or("probabilityCol", "probability")
+    }
+    /// The probabilities of logLoss are clipped to [eps, 1 - eps] (default: 1e-15).
+    pub fn eps(&self) -> f64 {
+        self.params.double_or("eps", 1e-15)
+    }
+    /// Whether a larger metric is better, as the JVM's `isLargerBetter`: every metric but the
+    /// false positive rates, logLoss and hammingLoss is.
+    pub fn is_larger_better(&self) -> bool {
+        !matches!(
+            self.metric_name(),
+            "weightedFalsePositiveRate" | "falsePositiveRateByLabel" | "logLoss" | "hammingLoss"
+        )
     }
     /// Get mutable parameters, as estimators and transformers have them.
     pub fn params_mut(&mut self) -> &mut Params {
@@ -7906,6 +8005,66 @@ mod tests {
             MulticlassClassificationEvaluator::default().metric_name(),
             "f1"
         );
+    }
+
+    #[test]
+    fn evaluators_take_the_params_and_defaults_of_pyspark() {
+        let regression = RegressionEvaluator::new();
+        assert_eq!(regression.weight_col(), None);
+        assert!(!regression.through_origin());
+        assert!(!regression.is_larger_better());
+        let regression = regression
+            .set_weight_col("w")
+            .set_through_origin(true)
+            .set_metric_name("var");
+        assert_eq!(regression.weight_col(), Some("w"));
+        assert!(regression.through_origin());
+        assert!(regression.is_larger_better());
+        assert!(RegressionEvaluator::new()
+            .set_metric_name("r2")
+            .is_larger_better());
+        assert!(!RegressionEvaluator::new()
+            .set_metric_name("mae")
+            .is_larger_better());
+
+        let binary = BinaryClassificationEvaluator::new();
+        assert_eq!(binary.num_bins(), 1000);
+        assert_eq!(binary.weight_col(), None);
+        assert!(binary.is_larger_better());
+        let binary = binary.set_num_bins(7).set_weight_col("w");
+        assert_eq!(binary.num_bins(), 7);
+        assert_eq!(binary.weight_col(), Some("w"));
+
+        let multiclass = MulticlassClassificationEvaluator::new();
+        assert_eq!(multiclass.metric_label(), 0.0);
+        assert_eq!(multiclass.beta(), 1.0);
+        assert_eq!(multiclass.probability_col(), "probability");
+        assert_eq!(multiclass.eps(), 1e-15);
+        assert!(multiclass.is_larger_better());
+        let multiclass = multiclass
+            .set_metric_label(2.0)
+            .set_beta(0.5)
+            .set_probability_col("p")
+            .set_eps(0.25)
+            .set_weight_col("w");
+        assert_eq!(multiclass.metric_label(), 2.0);
+        assert_eq!(multiclass.beta(), 0.5);
+        assert_eq!(multiclass.probability_col(), "p");
+        assert_eq!(multiclass.eps(), 0.25);
+        assert_eq!(multiclass.weight_col(), Some("w"));
+        for metric in [
+            "weightedFalsePositiveRate",
+            "falsePositiveRateByLabel",
+            "logLoss",
+            "hammingLoss",
+        ] {
+            let e = MulticlassClassificationEvaluator::new().set_metric_name(metric);
+            assert!(!e.is_larger_better(), "{metric}");
+        }
+        for metric in ["f1", "accuracy", "weightedPrecision", "precisionByLabel"] {
+            let e = MulticlassClassificationEvaluator::new().set_metric_name(metric);
+            assert!(e.is_larger_better(), "{metric}");
+        }
     }
 
     /// Asserts that `result` is the NOT_IMPLEMENTED error of the `fit` named `feature`, and

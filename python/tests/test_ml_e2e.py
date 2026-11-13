@@ -398,8 +398,8 @@ def test_ml_feature_transformers_as_pyspark(session):
 
 def test_ml_connect_vector_assembler_and_evaluator_as_pyspark(session):
     # pyspark.ml.connect's VectorAssembler sends inputCols as a list of strings, and the native
-    # BinaryClassificationEvaluator scores its probabilityCol (default probability), which the
-    # JVM evaluator reads as its rawPredictionCol, with the values of PySpark 4.3.0.
+    # BinaryClassificationEvaluator scores its rawPredictionCol, a vector of probabilities here,
+    # with the values of PySpark 4.3.0.
     from pyspark.ml.connect.evaluation import BinaryClassificationEvaluator
     from pyspark.ml.connect.feature import VectorAssembler
     from pyspark.ml.functions import array_to_vector
@@ -417,84 +417,167 @@ def test_ml_connect_vector_assembler_and_evaluator_as_pyspark(session):
         "label",
         array_to_vector(F.array(1.0 - F.col("score"), F.col("score"))).alias("probability"),
     )
-    assert BinaryClassificationEvaluator().evaluate(raw) == 0.75
-    evaluator = BinaryClassificationEvaluator(probabilityCol="probability", labelCol="label")
+    evaluator = BinaryClassificationEvaluator(rawPredictionCol="probability", labelCol="label")
     assert evaluator.evaluate(raw) == 0.75
-    pr = BinaryClassificationEvaluator(metricName="areaUnderPR", probabilityCol="probability")
+    pr = BinaryClassificationEvaluator(
+        metricName="areaUnderPR", rawPredictionCol="probability")
     assert pr.evaluate(raw) == pytest.approx(0.7916666666666666)
-
-
+    with pytest.raises(Exception, match="rawPrediction"):
+        BinaryClassificationEvaluator().evaluate(raw)
 def test_ml_connect_binary_evaluator_scores_the_probability_of_pyspark_docstring(session):
     # The example of PySpark's BinaryClassificationEvaluator: probabilities that are not vectors,
-    # and the default probabilityCol, which the evaluator reads with no other option. The metric
-    # is that of the server's evaluator: its areaUnderPR is the trapezoids of Spark's thresholds,
-    # 0.9027777777777777, where PySpark's torcheval metric of the docstring gives 0.9166666865.
+    # scored by the rawPredictionCol that names them, which the evaluator has no default for. The
+    # metric is that of the server's evaluator: its areaUnderPR is the trapezoids of Spark's
+    # thresholds, 0.9027777777777777, where PySpark's torcheval metric of the docstring gives
+    # 0.9166666865.
     from pyspark.ml.connect.evaluation import BinaryClassificationEvaluator
 
     dataset = session.createDataFrame(
         [(1, 0.6), (0, 0.55), (0, 0.1), (1, 0.6), (1, 0.4)],
         schema=["label", "probability"],
     )
-    pr = BinaryClassificationEvaluator(metricName="areaUnderPR")
+    pr = BinaryClassificationEvaluator(metricName="areaUnderPR", rawPredictionCol="probability")
     assert pr.evaluate(dataset) == pytest.approx(0.9027777777777777, abs=1e-9)
-    assert BinaryClassificationEvaluator().evaluate(dataset) == pytest.approx(5 / 6, abs=1e-9)
-
-
+    auroc = BinaryClassificationEvaluator(rawPredictionCol="probability")
+    assert auroc.evaluate(dataset) == pytest.approx(5 / 6, abs=1e-9)
+    with pytest.raises(Exception, match="rawPrediction"):
+        BinaryClassificationEvaluator().evaluate(dataset)
 def test_ml_connect_evaluators_take_spark_columns_and_reject_pandas(session):
     # The inputs of PySpark's own evaluator tests (test_legacy_mode_evaluation.py) and docstrings,
-    # which its torch evaluators read as tensors: int labels and predictions, a float32 or an
-    # array probability, whose column 1 is the positive class. Pandas inputs must be converted
-    # explicitly to Spark DataFrames. The JVM evaluators
-    # give doubles, 0.6 where PySpark's float32 tensors give 0.6000000238418579.
+    # with double labels and predictions, and a double or a vector of raw predictions, which the
+    # JVM evaluators read. Other types are rejected by the JVM evaluator, as PySpark's are, and
+    # pandas inputs must be converted explicitly to Spark DataFrames.
     from pyspark.ml.connect.evaluation import (
         BinaryClassificationEvaluator,
         MulticlassClassificationEvaluator,
         RegressionEvaluator,
     )
+    from pyspark.ml.linalg import Vectors
     from pyspark.sql import functions as F
 
     multiclass = session.createDataFrame(
-        [(1, 1), (1, 1), (2, 3), (0, 0), (0, 1), (3, 1), (3, 3), (2, 2), (1, 0), (2, 2)],
+        [(1.0, 1.0), (1.0, 1.0), (2.0, 3.0), (0.0, 0.0), (0.0, 1.0), (3.0, 1.0), (3.0, 3.0),
+         (2.0, 2.0), (1.0, 0.0), (2.0, 2.0)],
         schema=["label", "prediction"],
     )
     accuracy = MulticlassClassificationEvaluator(metricName="accuracy")
     assert accuracy.evaluate(multiclass) == pytest.approx(0.6)
     with pytest.raises(TypeError, match="requires a Spark DataFrame"):
         accuracy.evaluate(dataset=multiclass.toPandas())
+    with pytest.raises(Exception, match="must be of type"):
+        accuracy.evaluate(multiclass.select("label", F.col("prediction").cast("int")))
     docstring = session.createDataFrame(
-        [(1, 1), (0, 0), (2, 2), (1, 0), (2, 1)], schema=["label", "prediction"])
+        [(1.0, 1.0), (0.0, 0.0), (2.0, 2.0), (1.0, 0.0), (2.0, 1.0)],
+        schema=["label", "prediction"])
     assert MulticlassClassificationEvaluator().evaluate(docstring) == pytest.approx(0.6)
 
     regression = session.createDataFrame(
-        [(1.0, 2), (-1.0, -1), (2.0, 3)], schema=["label", "prediction"])
+        [(1.0, 2.0), (-1.0, -1.0), (2.0, 3.0)], schema=["label", "prediction"])
     mse = RegressionEvaluator(metricName="mse")
     assert mse.evaluate(regression) == pytest.approx(2 / 3)
     with pytest.raises(TypeError, match="requires a Spark DataFrame"):
         mse.evaluate(regression.toPandas())
+    with pytest.raises(Exception, match="must be of type"):
+        mse.evaluate(regression.select("label", F.col("prediction").cast("int")))
 
     binary = session.createDataFrame(
         [
-            (1, 0.2, [0.8, 0.2]),
-            (0, 0.6, [0.4, 0.6]),
-            (1, 0.8, [0.2, 0.8]),
-            (1, 0.7, [0.3, 0.7]),
-            (0, 0.4, [0.6, 0.4]),
-            (0, 0.3, [0.7, 0.3]),
+            (1, 0.2, [0.8, 0.2], Vectors.dense([0.8, 0.2])),
+            (0, 0.6, [0.4, 0.6], Vectors.dense([0.4, 0.6])),
+            (1, 0.8, [0.2, 0.8], Vectors.dense([0.2, 0.8])),
+            (1, 0.7, [0.3, 0.7], Vectors.dense([0.3, 0.7])),
+            (0, 0.4, [0.6, 0.4], Vectors.dense([0.6, 0.4])),
+            (0, 0.3, [0.7, 0.3], Vectors.dense([0.7, 0.3])),
         ],
-        schema=["label", "prob", "prob2"],
+        schema=["label", "prob", "prob2", "vec"],
     ).withColumn("prob32", F.col("prob").cast("float"))
     for metric in ("areaUnderROC", "areaUnderPR"):
-        expected = BinaryClassificationEvaluator(
-            metricName=metric, probabilityCol="prob").evaluate(binary)
-        for column in ("prob2", "prob32"):
-            evaluator = BinaryClassificationEvaluator(metricName=metric, probabilityCol=column)
-            assert evaluator.evaluate(binary) == pytest.approx(expected), (metric, column)
-            with pytest.raises(TypeError, match="requires a Spark DataFrame"):
-                evaluator.evaluate(binary.toPandas())
-    auroc = BinaryClassificationEvaluator(probabilityCol="prob2").evaluate(binary)
-    assert auroc == pytest.approx(2 / 3)
+        evaluator = BinaryClassificationEvaluator(metricName=metric, rawPredictionCol="prob")
+        assert evaluator.evaluate(binary) == pytest.approx(
+            BinaryClassificationEvaluator(metricName=metric, rawPredictionCol="vec").evaluate(
+                binary
+            )
+        ), metric
+        with pytest.raises(TypeError, match="requires a Spark DataFrame"):
+            evaluator.evaluate(binary.toPandas())
+    assert BinaryClassificationEvaluator(rawPredictionCol="vec").evaluate(binary) == (
+        pytest.approx(2 / 3)
+    )
+    # An array and a float are not raw predictions of the JVM evaluator: it rejects them.
+    for column in ("prob2", "prob32"):
+        with pytest.raises(Exception, match="must be of type"):
+            BinaryClassificationEvaluator(rawPredictionCol=column).evaluate(binary)
     with pytest.raises(AttributeError, match="'list' object has no attribute 'select'"):
         accuracy.evaluate([(1, 1)])
+def test_ml_connect_evaluator_params_and_errors_as_pyspark(session):
+    # The params of PySpark's evaluators over Connect, with the values and errors of PySpark
+    # 4.3.0: throughOrigin, weightCol, numBins, metricLabel and beta, and logLoss of a vector of
+    # probabilities. The server reads the params and checks them, as it does for PySpark.
+    from pyspark.ml.connect.evaluation import (
+        BinaryClassificationEvaluator,
+        MulticlassClassificationEvaluator,
+        RegressionEvaluator,
+    )
+    from pyspark.ml.linalg import Vectors, VectorUDT
+    from pyspark.sql.types import DoubleType, StructField, StructType
+
+    regression = session.createDataFrame(
+        [(1.0, 1.5, 2.0), (2.0, 2.0, 1.0), (3.0, 2.5, 0.5)], schema=["label", "prediction", "w"]
+    )
+    assert RegressionEvaluator().evaluate(regression) == pytest.approx(0.4082482904638631)
+    assert RegressionEvaluator(weightCol="w").evaluate(regression) == pytest.approx(
+        0.42257712736425834
+    )
+    through = session.createDataFrame(
+        [(1.0, 1.5), (2.0, 2.0), (3.0, 2.5), (4.0, 3.0)], schema=["label", "prediction"]
+    )
+    assert RegressionEvaluator(throughOrigin=True).evaluate(through) == pytest.approx(
+        0.6123724356957945
+    )
+    assert RegressionEvaluator(metricName="r2", throughOrigin=True).evaluate(through) == (
+        pytest.approx(0.95)
+    )
+    negative = session.createDataFrame(
+        [(1.0, 1.5, -2.0), (2.0, 2.0, 1.0)], schema=["label", "prediction", "w"])
+    with pytest.raises(Exception, match="Weights MUST NOT be Negative"):
+        RegressionEvaluator(weightCol="w").evaluate(negative)
+
+    binary = session.createDataFrame(
+        [(0.9, 1.0), (0.2, 0.0), (0.4, 1.0), (0.7, 0.0)], schema=["rawPrediction", "label"])
+    assert BinaryClassificationEvaluator(numBins=2).evaluate(binary) == pytest.approx(0.75)
+    with pytest.raises(Exception, match="numBins given invalid value -1"):
+        BinaryClassificationEvaluator(numBins=-1).evaluate(binary)
+    with pytest.raises(Exception, match="metricName given invalid value bogus"):
+        BinaryClassificationEvaluator(metricName="bogus").evaluate(binary)
+
+    multiclass = session.createDataFrame(
+        [(0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (2.0, 2.0)], schema=["label", "prediction"])
+    assert MulticlassClassificationEvaluator(
+        metricName="precisionByLabel", metricLabel=2.0
+    ).evaluate(multiclass) == pytest.approx(1.0)
+    assert MulticlassClassificationEvaluator(
+        metricName="weightedFMeasure", beta=2.0
+    ).evaluate(multiclass) == pytest.approx(0.7361111111111112)
+    with pytest.raises(Exception, match="beta given invalid value 0.0"):
+        MulticlassClassificationEvaluator(metricName="fMeasureByLabel", beta=0.0).evaluate(
+            multiclass)
+    with pytest.raises(Exception, match="probabilityCol is needed to compute logloss"):
+        MulticlassClassificationEvaluator(metricName="logLoss").evaluate(multiclass)
+    probabilities = session.createDataFrame(
+        [
+            (0.0, Vectors.dense([0.7, 0.3]), 0.0),
+            (1.0, Vectors.dense([0.2, 0.8]), 1.0),
+            (1.0, Vectors.dense([0.4, 0.6]), 1.0),
+        ],
+        schema=StructType([
+            StructField("label", DoubleType()),
+            StructField("probability", VectorUDT()),
+            StructField("prediction", DoubleType()),
+        ]),
+    )
+    assert MulticlassClassificationEvaluator(metricName="logLoss").evaluate(
+        probabilities
+    ) == pytest.approx(0.3635480396729776)
 
 
 def test_native_ml_accepts_explicitly_converted_pandas(session):
@@ -553,13 +636,16 @@ def test_ml_connect_columns_spelled_in_another_case_than_the_schema_as_pyspark(s
     out = fitted.transform(train.selectExpr("features AS FEATURES", "label")).toPandas()
     assert list(out.columns) == ["FEATURES", "label", "prediction", "probability"]
 
-    # The schema spells the label LABEL and the prediction prediction: the evaluator reads both.
+    # The schema spells the label LABEL and the prediction prediction. The evaluator sends the
+    # names as they are, as PySpark's does: the JVM resolves LABEL, and rejects PREDICTION.
     scored = session.sql(
         "select label AS LABEL, cast(label AS double) AS prediction "
         "from values (1.0D), (2.0D) as t(label)"
     )
-    metric = RegressionEvaluator(labelCol="LABEL", predictionCol="PREDICTION").evaluate(scored)
+    metric = RegressionEvaluator(labelCol="LABEL", predictionCol="prediction").evaluate(scored)
     assert metric == pytest.approx(0.0)
+    with pytest.raises(Exception, match="PREDICTION"):
+        RegressionEvaluator(labelCol="LABEL", predictionCol="PREDICTION").evaluate(scored)
 
 
 def test_ml_connect_scalers_and_estimators_take_the_array_columns_of_pyspark(session):
@@ -889,7 +975,7 @@ def test_ml_connect_setters_change_the_next_evaluate_and_fit_as_pyspark(session)
     assert multiclass.setMetricName("accuracy") is multiclass
     assert multiclass.evaluate(scored) == 0.75  # The f1 is 0.733.
     binary = BinaryClassificationEvaluator()
-    assert binary.setProbabilityCol("score") is binary  # No probability column is there.
+    assert binary.setRawPredictionCol("score") is binary  # The score is a vector of predictions.
     assert binary.evaluate(scored) == 0.75
     assert binary.setMetricName("areaUnderPR") is binary
     assert binary.evaluate(scored) == pytest.approx(0.7916666666666666)

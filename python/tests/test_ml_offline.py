@@ -670,15 +670,19 @@ def test_ml_connect_native_columns_are_spelled_as_the_schema_of_the_dataset(ml_m
     transform = transformed.drop.input.with_columns.input.ml_relation.transform
     assert transform.params.params["featuresCol"] == pb2.Expression.Literal(string="FEATURES")
 
-    # The evaluate of a DataFrame sends the labelCol and the predictionCol that the schema spells.
+    # The evaluate sends its params and its DataFrame as they are, as pyspark.ml does: the JVM
+    # evaluator resolves the columns, so the names are not respelled, and the DataFrame is not
+    # cast or converted.
     service.data_type = ddl_data_type("label double, prediction double")
     sent = len(service.execute_requests)
     service.execute_payload = _ml_result(param=pb2.Expression.Literal(double=0.5))
     evaluator = connect.RegressionEvaluator(labelCol="LABEL", predictionCol="PREDICTION")
-    assert evaluator.evaluate(spark.range(1)) == 0.5
+    df = spark.range(1)
+    assert evaluator.evaluate(df) == 0.5
     evaluate = _commands_but_deletes(service, sent)[0].ml_command.evaluate
-    assert evaluate.params.params["labelCol"] == pb2.Expression.Literal(string="label")
-    assert evaluate.params.params["predictionCol"] == pb2.Expression.Literal(string="prediction")
+    assert evaluate.params.params["labelCol"] == pb2.Expression.Literal(string="LABEL")
+    assert evaluate.params.params["predictionCol"] == pb2.Expression.Literal(string="PREDICTION")
+    assert evaluate.dataset == _relation(df)
 
 
 
@@ -780,14 +784,20 @@ def test_ml_connect_setters_set_the_params_of_their_receiver_as_pyspark(ml_mock)
                 offsetCol="o", aggregationDepth=3,
             ),
         ),
-        (RegressionEvaluator, dict(labelCol="y", predictionCol="p", metricName="r2")),
+        (
+            RegressionEvaluator,
+            dict(labelCol="y", predictionCol="p", metricName="r2", weightCol="w",
+                 throughOrigin=True),
+        ),
         (
             BinaryClassificationEvaluator,
-            dict(labelCol="y", probabilityCol="p", metricName="areaUnderPR"),
+            dict(labelCol="y", rawPredictionCol="r", metricName="areaUnderPR", weightCol="w",
+                 numBins=7),
         ),
         (
             MulticlassClassificationEvaluator,
-            dict(labelCol="y", predictionCol="p", metricName="accuracy"),
+            dict(labelCol="y", predictionCol="p", metricName="accuracy", weightCol="w",
+                 metricLabel=1.5, beta=2.0, probabilityCol="q", eps=0.25),
         ),
     ]:
         setters = {"set" + name[0].upper() + name[1:]: name for name in values}
@@ -797,21 +807,15 @@ def test_ml_connect_setters_set_the_params_of_their_receiver_as_pyspark(ml_mock)
         ) == sorted(setters)
         receiver = cls()
         for setter, name in setters.items():
-            # By the name of the argument of PySpark's setters, value. The evaluators' setters are
-            # of this client, as PySpark's evaluators have none, with the same argument.
+            # By the name of the argument of PySpark's setters, value.
             assert getattr(receiver, setter)(value=values[name]) is receiver, (cls, setter)
         params = sent_params(receiver)
-        sent_values = {_sent_name(cls.__name__, name): value for name, value in values.items()}
+        sent_values = values
         assert {name: params.get(name) for name in sent_values} == sent_values, cls
         assert params == sent_params(cls(**values)), cls
 
 
-_NO_SET_PARAMS = (
-    "LogisticRegression",
-    "RegressionEvaluator",
-    "BinaryClassificationEvaluator",
-    "MulticlassClassificationEvaluator",
-)
+_NO_SET_PARAMS = ("LogisticRegression",)
 _ONE_VS_REST_PARAMS = dict(
     featuresCol="str", labelCol="str", predictionCol="str", rawPredictionCol="str",
     weightCol="str", parallelism="int",
@@ -838,12 +842,12 @@ def _user_sent(name, sent):
 
 def test_ml_connect_set_params_as_pyspark(ml_mock):
     # As PySpark's setParams, of each class that has one: the pyspark.ml classes, which have it
-    # all, and the Pipeline and CrossValidator of pyspark.ml.connect. LogisticRegression and the
-    # evaluators of pyspark.ml.connect have none. It is keyword-only, with the params of the
-    # constructor, sets the params that it is given, in order, and returns the object. A value
-    # that its converter rejects raises the TypeError of the constructor. StringIndexer,
-    # VectorAssembler and CrossValidator take the params of their constructors, which are fewer
-    # than the params of PySpark's setParams, so they are the only ones that differ.
+    # all, and the evaluators, the Pipeline and CrossValidator of pyspark.ml.connect.
+    # LogisticRegression has none. It is keyword-only, with the params of the constructor, sets
+    # the params that it is given, in order, and returns the object. A value that its converter
+    # rejects raises the TypeError of the constructor. StringIndexer, VectorAssembler and
+    # CrossValidator take the params of their constructors, which are fewer than the params of
+    # PySpark's setParams, so they are the only ones that differ.
     import inspect
 
     import pyspark.ml.connect as connect
@@ -896,7 +900,7 @@ def test_ml_connect_set_params_as_pyspark(ml_mock):
                 assert sent == built, (name, param)
                 if name != "OneVsRest":
                     assert sent == {
-                        **_defaults_sent(name), _sent_name(name, param): expected
+                        **_defaults_sent(name), param: expected
                     }, (name, param)
             for bad, message in _NATIVE_REJECTED[kind][:1]:
                 expected_error = f'Invalid param value given for param "{param}". {message}'
@@ -1190,10 +1194,16 @@ _NATIVE_PARAMS = {
         tol="float", maxIter="int", seed="int", distanceMeasure="str", weightCol="str",
         solver="str", maxBlockSizeInMB="float",
     ),
-    "RegressionEvaluator": dict(labelCol="str", predictionCol="str", metricName="str"),
-    "BinaryClassificationEvaluator": dict(labelCol="str", probabilityCol="str", metricName="str"),
+    "RegressionEvaluator": dict(
+        predictionCol="str", labelCol="str", metricName="str", weightCol="str",
+        throughOrigin="bool",
+    ),
+    "BinaryClassificationEvaluator": dict(
+        rawPredictionCol="str", labelCol="str", metricName="str", weightCol="str", numBins="int",
+    ),
     "MulticlassClassificationEvaluator": dict(
-        metricName="str", labelCol="str", predictionCol="str"
+        predictionCol="str", labelCol="str", metricName="str", weightCol="str",
+        metricLabel="float", beta="float", probabilityCol="str", eps="float",
     ),
     "Pipeline": dict(stages="str_list"),
     "CrossValidator": dict(numFolds="int", parallelism="int", seed="int"),
@@ -1255,23 +1265,9 @@ def _literal_value(literal):
     return kind, getattr(literal, kind)
 
 
-def _sent_name(name, param):
-    # The name of a param in the request: the probability column of PySpark's
-    # BinaryClassificationEvaluator is the rawPredictionCol that the JVM evaluator scores.
-    if (name, param) == ("BinaryClassificationEvaluator", "probabilityCol"):
-        return "rawPredictionCol"
-    return param
-
-
 def _defaults_sent(name):
-    # The params that a native class sends unless it is given them: the metric of
-    # MulticlassClassificationEvaluator and the probability column of
-    # BinaryClassificationEvaluator, which PySpark's constructor sets, and the empty raw prediction
+    # The params that a native class sends unless it is given them: the empty raw prediction
     # column of LogisticRegression, as PySpark's outputs no raw prediction.
-    if name == "MulticlassClassificationEvaluator":
-        return {"metricName": ("string", "accuracy")}
-    if name == "BinaryClassificationEvaluator":
-        return {"rawPredictionCol": ("string", "probability")}
     if name == "LogisticRegression":
         return {"rawPredictionCol": ("string", "")}
     return {}
@@ -1284,9 +1280,8 @@ def _native_sent(spark, service, obj, models):
 
 def test_ml_connect_constructors_are_keyword_only_as_pyspark(ml_mock):
     # As PySpark's @keyword_only: the constructor of a native pyspark.ml.connect class raises
-    # its TypeError for a positional argument, except MulticlassClassificationEvaluator's, which
-    # is not keyword-only in PySpark and takes metricName, labelCol and predictionCol by
-    # position. A wrong argument raises Python's TypeError of PySpark's __init__.
+    # its TypeError for a positional argument. A wrong argument raises Python's TypeError of
+    # PySpark's __init__.
     import pyspark.ml.connect as connect
 
     spark, service = ml_mock
@@ -1296,30 +1291,15 @@ def test_ml_connect_constructors_are_keyword_only_as_pyspark(ml_mock):
         with pytest.raises(TypeError) as error:
             cls(bogus=1)
         assert str(error.value) == f"{name}.__init__() got an unexpected keyword argument 'bogus'"
-        if name == "MulticlassClassificationEvaluator":
-            continue
         for args in [("a",), (1, 2)]:
             with pytest.raises(TypeError) as error:
                 cls(*args)
             assert str(error.value) == "Method __init__ forces keyword arguments.", name
-    evaluator = connect.MulticlassClassificationEvaluator("accuracy", "y", predictionCol="p")
+    evaluator = connect.MulticlassClassificationEvaluator(metricName="accuracy", labelCol="y")
     assert _native_sent(spark, service, evaluator, models) == {
         "metricName": ("string", "accuracy"),
         "labelCol": ("string", "y"),
-        "predictionCol": ("string", "p"),
     }
-    with pytest.raises(TypeError) as error:
-        connect.MulticlassClassificationEvaluator("a", "b", "c", "d")
-    assert str(error.value) == (
-        "MulticlassClassificationEvaluator.__init__() takes from 1 to 4 positional arguments "
-        "but 5 were given"
-    )
-    with pytest.raises(TypeError) as error:
-        connect.MulticlassClassificationEvaluator("a", metricName="b")
-    assert str(error.value) == (
-        "MulticlassClassificationEvaluator.__init__() got multiple values for argument "
-        "'metricName'"
-    )
 
 
 def test_ml_connect_params_convert_with_the_type_converters_of_pyspark(ml_mock):
@@ -1344,7 +1324,7 @@ def test_ml_connect_params_convert_with_the_type_converters_of_pyspark(ml_mock):
                         continue  # Their params are sent by no request.
                     sent = _native_sent(spark, service, obj, models)
                     assert sent == {
-                        **_defaults_sent(name), _sent_name(name, param): expected
+                        **_defaults_sent(name), param: expected
                     }, (name, param, value)
             for value, message in _NATIVE_REJECTED[kind]:
                 expected = f'Invalid param value given for param "{param}". {message}'
@@ -1382,64 +1362,127 @@ def test_ml_connect_constructors_send_only_the_params_they_are_given_as_pyspark(
 
 
 def test_ml_connect_evaluators_take_the_signatures_and_defaults_of_pyspark(ml_mock):
-    # As PySpark's pyspark.ml.connect evaluators: their signatures, and the metric of
-    # MulticlassClassificationEvaluator, "accuracy" unless given, which its constructor sets, where
-    # the JVM evaluator's default is "f1".
+    # As pyspark.ml.evaluation's evaluators: their keyword-only signatures and defaults, of which
+    # the constructor sends none (the server applies them). The metric of
+    # MulticlassClassificationEvaluator is f1, as in PySpark.
     import inspect
 
     import pyspark.ml.connect as connect
 
     spark, service = ml_mock
     signatures = {
-        "RegressionEvaluator": "(*, metricName='rmse', labelCol='label', predictionCol='prediction')",
-        "BinaryClassificationEvaluator":
-            "(*, metricName='areaUnderROC', labelCol='label', probabilityCol='probability')",
-        "MulticlassClassificationEvaluator":
-            "(metricName='accuracy', labelCol='label', predictionCol='prediction')",
+        "RegressionEvaluator": (
+            "(*, predictionCol='prediction', labelCol='label', metricName='rmse', "
+            "weightCol=None, throughOrigin=False)"
+        ),
+        "BinaryClassificationEvaluator": (
+            "(*, rawPredictionCol='rawPrediction', labelCol='label', "
+            "metricName='areaUnderROC', weightCol=None, numBins=1000)"
+        ),
+        "MulticlassClassificationEvaluator": (
+            "(*, predictionCol='prediction', labelCol='label', metricName='f1', weightCol=None, "
+            "metricLabel=0.0, beta=1.0, probabilityCol='probability', eps=1e-15)"
+        ),
     }
-    for name, signature in signatures.items():
-        assert str(inspect.signature(getattr(connect, name))) == signature, name
     models = []
+    for name, signature in signatures.items():
+        cls = getattr(connect, name)
+        assert str(inspect.signature(cls)) == signature, name
+        assert str(inspect.signature(cls.setParams)) == "(self, " + signature[1:], name
+        assert _native_sent(spark, service, cls(), models) == {}, name
     evaluator = connect.MulticlassClassificationEvaluator
-    assert _native_sent(spark, service, evaluator(), models) == {
+    assert _native_sent(spark, service, evaluator(metricName="accuracy"), models) == {
         "metricName": ("string", "accuracy")
     }
-    assert _native_sent(spark, service, evaluator(metricName="f1"), models) == {
-        "metricName": ("string", "f1")
-    }
-    assert _native_sent(spark, service, evaluator("weightedPrecision"), models) == {
-        "metricName": ("string", "weightedPrecision")
-    }
+    assert _native_sent(spark, service, evaluator(), models) == {}
 
 
-def test_ml_connect_binary_evaluator_sends_its_probability_col_as_the_jvm_raw_prediction(ml_mock):
-    # As PySpark's BinaryClassificationEvaluator, whose probabilityCol defaults to "probability"
-    # and which has no rawPredictionCol. The JVM evaluator scores its rawPredictionCol, so the
-    # probability column is sent as that param.
+def test_ml_connect_binary_evaluator_scores_its_raw_prediction_col_as_pyspark(ml_mock):
+    # As pyspark.ml's BinaryClassificationEvaluator, which scores its rawPredictionCol, a double
+    # or a vector of raw predictions. It has no probabilityCol, and the JVM evaluator reads the
+    # rawPredictionCol that the constructor and setRawPredictionCol set, as it is.
     import pyspark.ml.connect as connect
 
     spark, service = ml_mock
     models = []
     evaluator = connect.BinaryClassificationEvaluator
-    assert _native_sent(spark, service, evaluator(), models) == {
-        "rawPredictionCol": ("string", "probability")
-    }
-    assert _native_sent(spark, service, evaluator(probabilityCol="p"), models) == {
+    assert _native_sent(spark, service, evaluator(), models) == {}
+    assert _native_sent(spark, service, evaluator(rawPredictionCol="p"), models) == {
         "rawPredictionCol": ("string", "p")
     }
-    binary = evaluator(metricName="areaUnderPR", labelCol="y", probabilityCol="p")
+    binary = evaluator(metricName="areaUnderPR", labelCol="y", rawPredictionCol="p", numBins=5)
     assert _native_sent(spark, service, binary, models) == {
         "metricName": ("string", "areaUnderPR"),
         "labelCol": ("string", "y"),
         "rawPredictionCol": ("string", "p"),
+        "numBins": ("integer", 5),
     }
     with pytest.raises(TypeError) as error:
-        evaluator(rawPredictionCol="r")
+        evaluator(probabilityCol="p")
     assert str(error.value) == (
         "BinaryClassificationEvaluator.__init__() got an unexpected keyword argument "
-        "'rawPredictionCol'"
+        "'probabilityCol'"
     )
-    assert not hasattr(evaluator(), "setRawPredictionCol")
+    assert not hasattr(evaluator(), "setProbabilityCol")
+
+
+def test_ml_connect_evaluators_getters_and_is_larger_better_as_pyspark(ml_mock):
+    # As pyspark.ml's evaluators: a getter returns the value that its param is set to, its
+    # default when it is not set, and None when it is set to None. getWeightCol raises KeyError
+    # when it is not set, as PySpark's getOrDefault does, since weightCol has no default.
+    # isLargerBetter is that of PySpark: the r2 and var of a RegressionEvaluator, every metric of
+    # a BinaryClassificationEvaluator, and every metric of a MulticlassClassificationEvaluator but
+    # the false positive rates, logLoss and hammingLoss.
+    import pyspark.ml.connect as connect
+
+    regression = connect.RegressionEvaluator()
+    assert regression.getPredictionCol() == "prediction"
+    assert regression.getLabelCol() == "label"
+    assert regression.getMetricName() == "rmse"
+    assert regression.getThroughOrigin() is False
+    with pytest.raises(KeyError, match="weightCol"):
+        regression.getWeightCol()
+    assert regression.setWeightCol(value="w") is regression
+    assert regression.getWeightCol() == "w"
+    assert regression.setWeightCol(value=None) is regression
+    assert regression.getWeightCol() is None
+    assert regression.setThroughOrigin(value=True) is regression
+    assert regression.getThroughOrigin() is True
+    assert regression.setMetricName(value="var") is regression
+    assert regression.getMetricName() == "var"
+
+    binary = connect.BinaryClassificationEvaluator()
+    assert binary.getRawPredictionCol() == "rawPrediction"
+    assert binary.getLabelCol() == "label"
+    assert binary.getMetricName() == "areaUnderROC"
+    assert binary.getNumBins() == 1000 and type(binary.getNumBins()) is int
+    assert binary.setNumBins(value=3) is binary
+    assert binary.getNumBins() == 3
+
+    multiclass = connect.MulticlassClassificationEvaluator()
+    assert multiclass.getMetricName() == "f1"
+    assert multiclass.getMetricLabel() == 0.0 and type(multiclass.getMetricLabel()) is float
+    assert multiclass.getBeta() == 1.0
+    assert multiclass.getEps() == 1e-15
+    assert multiclass.getProbabilityCol() == "probability"
+    assert multiclass.setMetricLabel(value=2) is multiclass
+    assert multiclass.getMetricLabel() == 2.0 and type(multiclass.getMetricLabel()) is float
+    assert multiclass.setProbabilityCol(value=None) is multiclass
+    assert multiclass.getProbabilityCol() is None
+
+    regression_metrics = ["rmse", "mse", "r2", "mae", "var"]
+    assert [
+        connect.RegressionEvaluator(metricName=m).isLargerBetter() for m in regression_metrics
+    ] == [False, False, True, False, True]
+    assert connect.BinaryClassificationEvaluator(metricName="areaUnderPR").isLargerBetter()
+    multiclass_metrics = [
+        "f1", "accuracy", "weightedPrecision", "weightedFalsePositiveRate",
+        "falsePositiveRateByLabel", "logLoss", "hammingLoss",
+    ]
+    assert [
+        connect.MulticlassClassificationEvaluator(metricName=m).isLargerBetter()
+        for m in multiclass_metrics
+    ] == [True, True, True, False, False, False, False]
 
 
 def test_ml_connect_unsendable_ints_none_and_uids_as_pyspark(ml_mock):
@@ -1486,7 +1529,7 @@ def test_ml_connect_unsendable_ints_none_and_uids_as_pyspark(ml_mock):
             obj = cls()
             assert getattr(obj, setter)(value) is obj
             assert getattr(obj, setter)(None) is obj
-            sent_name = _sent_name(name, param)
+            sent_name = param
             sent_names = {sent_name}
             sent = _native_sent(spark, service, obj, models)
             assert sent.keys() == sent_names | _defaults_sent(name).keys(), (name, param)

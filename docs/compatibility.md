@@ -61,12 +61,10 @@ an id.
 `BinaryClassificationEvaluator::set_score_col` and `score_col`, and the Python
 `scoreCol=` argument and `setScoreCol` of v4.2.0 are removed, without an alias:
 Spark's evaluator has no `scoreCol` param, so no value of it worked on the server.
-Use `set_raw_prediction_col` and `raw_prediction_col` in Rust, the column of raw prediction
-vectors that the evaluator scores. In Python it is `probabilityCol=`, as in PySpark, and
-`setProbabilityCol`, a setter of this client (PySpark's evaluators have none): the column of
-probabilities, which the server reads as its raw prediction column. A model without a
-probability column, such as the native `LinearSVC`, is scored with
-`probabilityCol="rawPrediction"`.
+Use `set_raw_prediction_col` and `raw_prediction_col` in Rust, the column of raw predictions
+that the evaluator scores. In Python it is `rawPredictionCol=` and `setRawPredictionCol`, as in
+PySpark: the column is a double or a vector of raw predictions, and a model's probability
+column is scored by passing that column as its `rawPredictionCol`.
 
 The native ML classes take a JVM `Int` param as an `i32`: `LogisticRegression::set_max_iter`,
 `LinearSVC::set_max_iter` and `LinearSVC::set_aggregation_depth` take an `i32`, and
@@ -248,12 +246,11 @@ on the server of that session with `CONNECT_ML.CACHE_INVALID`.
 
 The Python classes of the native estimators, transformers and evaluators of
 `pyspark.ml.connect` take their params as PySpark's do. The constructors are
-keyword-only, raising PySpark's `TypeError`, except `MulticlassClassificationEvaluator`,
-which takes `metricName`, `labelCol` and `predictionCol` by position as well, as
-PySpark's does; its `metricName` is `accuracy` by default, as in PySpark, where the JVM
-evaluator and the Rust API default to `f1`. The `probabilityCol` of
-`BinaryClassificationEvaluator` is `probability` by default, as in PySpark, and is sent as the
-`rawPredictionCol` that the JVM evaluator scores.
+keyword-only, raising PySpark's `TypeError`. The three native evaluators have the signatures,
+params and defaults of their `pyspark.ml.evaluation` classes, `f1` being the default metric of
+`MulticlassClassificationEvaluator`, as in the JVM evaluator and the Rust API. Their
+`isLargerBetter` is PySpark's, and their getters return the value of their param, or its default,
+as PySpark's do.
 Each value is converted by the `TypeConverters` of its param in
 PySpark (an integral float for an int param, for example), and a value that the
 converter rejects raises its `TypeError`. A fit, transform or evaluate sends only the
@@ -265,9 +262,9 @@ not given is not sent, so the server's default applies. A list param without ele
 accepted by its constructor and setters, and a fit, transform or evaluate raises PySpark's
 `CANNOT_INFER_ARRAY_ELEMENT_TYPE` for it, as PySpark's serialization does.
 
-A native class has the `setParams` of its `pyspark.ml` class, except `LogisticRegression` and the
-three evaluators, whose params are still those of the deprecated `pyspark.ml.connect` classes (see
-Native LogisticRegression), which have no `setParams`. It is keyword-only, takes the params of the
+A native class has the `setParams` of its `pyspark.ml` class, except `LogisticRegression`, whose
+params are still those of the deprecated `pyspark.ml.connect` class (see Native LogisticRegression),
+which has no `setParams`. It is keyword-only, takes the params of the
 constructor, sets the params that it is given, in order, and returns the object, as PySpark's
 `_set` does. Its signature is PySpark's for every class except `StringIndexer` and
 `VectorAssembler`, which take only the params of their constructors (`inputCol` and `outputCol`,
@@ -303,10 +300,12 @@ The fit of `LogisticRegression` checks its labels before it fits, as PySpark's `
 distinct labels of the server's `collect_set` of the label column (a null label is not one of them):
 there must be at least two, each an integer in `[0, numClasses)`, else PySpark's `ValueError` is
 raised. The other checks of PySpark's fit (the row count, the size of the features) are not made, as
-they do not raise. The evaluators cast a prediction or a probability of another numeric type to a
-double, and send an array of probabilities as a vector (`array_to_vector`), whose element 1 is
-scored, as PySpark's evaluator reads the column 1 of an array. The values are the JVM evaluators'
-doubles, where PySpark's are of float32 tensors (`0.6` where PySpark returns `0.6000000238418579`).
+they do not raise. The evaluators send their DataFrame and their params as `pyspark.ml` does,
+without casting or converting a column, so the JVM evaluator reads the columns and checks their
+types: a prediction that is an int, or a rawPredictionCol that is an array or a float, raises the
+JVM's `IllegalArgumentException`, as in PySpark. A column name is resolved as the JVM resolves it:
+`labelCol="LABEL"` finds a `label` column, but `predictionCol="PREDICTION"` raises for a
+`prediction` column, as in PySpark.
 The native estimators accept Spark DataFrames with vector or numeric array feature columns.
 A fit and the transform of its model read the DataFrame schema and send an array `featuresCol`
 as the vector (`array_to_vector`) that the JVM reads; the transform preserves the input array
