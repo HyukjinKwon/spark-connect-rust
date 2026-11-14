@@ -195,9 +195,7 @@ def _multinomial_live(rec, model, df):
     rec("multi_summary_class", lambda: type(s).__name__)
     for a in ["accuracy", "labels", "objectiveHistory", "totalIterations", "weightedRecall"]:
         rec("multi_summary_" + a, lambda a=a: getattr(s, a))
-    # The message of the AttributeError names the class by its qualified name, which CPython cuts
-    # at 50 characters for a native class, so the case records whether the attribute exists.
-    rec("multi_summary_has_areaUnderROC", lambda: hasattr(s, "areaUnderROC"))
+    rec("multi_summary_areaUnderROC", lambda: s.areaUnderROC)
     rec("multi_summary_fMeasureByLabel", lambda: s.fMeasureByLabel(0.5))
     rec("multi_summary_predictions", lambda: s.predictions.select("prediction"))
     e = model.evaluate(df)

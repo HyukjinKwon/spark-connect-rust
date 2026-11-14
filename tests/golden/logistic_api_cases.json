@@ -93,6 +93,10 @@
      "(1, 3)"
     ]
    ],
+   "fit_class_param": [
+    "AttributeError",
+    "'function' object has no attribute 'df'"
+   ],
    "fit_list": [
     "ok",
     [
@@ -115,6 +119,10 @@
    "interceptVector": [
     "ok",
     "DenseVector([0.0])"
+   ],
+   "isinstance_model": [
+    "ok",
+    "(True, True)"
    ],
    "loaded_explainParams": [
     "ok",
@@ -162,6 +170,10 @@
     "ok",
     "True"
    ],
+   "model_class": [
+    "ok",
+    "('LogisticRegressionModel', 'classification')"
+   ],
    "model_explainParams": [
     "ok",
     "\"aggregationDepth: suggested depth for treeAggregate (>= 2). (default: 2)\\nelasticNetParam: the ElasticNet mixing parameter, in range [0, 1]. For alpha = 0, the penalty is an L2 penalty. For alpha = 1, it is an L1 penalty. (default: 0.0)\\nfamily: The name of family which is a description of the label distribution to be used in the model. Supported options: auto, binomial, multinomial (default: auto)\\nfeaturesCol: features column name. (default: features)\\nfitIntercept: whether to fit an intercept term. (default: True)\\nlabelCol: label column name. (default: label)\\nlowerBoundsOnCoefficients: The lower bounds on coefficients if fitting under bound constrained optimization. The bound matrix must be compatible with the shape (1, number of features) for binomial regression, or (number of classes, number of features) for multinomial regression. (undefined)\\nlowerBoundsOnIntercepts: The lower bounds on intercepts if fitting under bound constrained optimization. The bounds vector size must beequal with 1 for binomial regression, or the number oflasses for multinomial regression. (undefined)\\nmaxBlockSizeInMB: maximum memory in MB for stacking input data into blocks. Data is stacked within partitions. If more than remaining data size in a partition then it is adjusted to the data size. Default 0.0 represents choosing optimal value, depends on specific algorithm. Must be >= 0. (default: 0.0)\\nmaxIter: max number of iterations (>= 0). (default: 100, current: 5)\\npredictionCol: prediction column name. (default: prediction)\\nprobabilityCol: Column name for predicted class conditional probabilities. Note: Not all models output well-calibrated probability estimates! These probabilities should be treated as confidences, not precise probabilities. (default: probability)\\nrawPredictionCol: raw prediction (a.k.a. confidence) column name. (default: rawPrediction)\\nregParam: regularization parameter (>= 0). (default: 0.0, current: 0.01)\\nstandardization: whether to standardize the training features before fitting the model. (default: True)\\nthreshold: Threshold in binary classification prediction, in range [0, 1]. If threshold and thresholds are both set, they must match.e.g. if threshold is p, then thresholds must be equal to [1-p, p]. (default: 0.5)\\nthresholds: Thresholds in multi-class classification to adjust the probability of predicting each class. Array must have length equal to the number of classes, with values > 0, excepting that at most one value may be 0. The class with largest value p/t is predicted, where p is the original probability of that class and t is the class's threshold. (undefined)\\ntol: the convergence tolerance for iterative algorithms (>= 0). (default: 1e-06)\\nupperBoundsOnCoefficients: The upper bounds on coefficients if fitting under bound constrained optimization. The bound matrix must be compatible with the shape (1, number of features) for binomial regression, or (number of classes, number of features) for multinomial regression. (undefined)\\nupperBoundsOnIntercepts: The upper bounds on intercepts if fitting under bound constrained optimization. The bound vector size must be equal with 1 for binomial regression, or the number of classes for multinomial regression. (undefined)\\nweightCol: weight column name. If this is not set or empty, we treat all instance weights as 1.0. (undefined)\""
@@ -205,6 +217,10 @@
    "model_isSet_threshold": [
     "ok",
     "False"
+   ],
+   "model_no_attribute": [
+    "AttributeError",
+    "'LogisticRegressionModel' object has no attribute 'fooBarBaz'"
    ],
    "model_save": [
     "ok",
@@ -281,6 +297,10 @@
     "ok",
     1.0
    ],
+   "multi_summary_areaUnderROC": [
+    "AttributeError",
+    "'LogisticRegressionTrainingSummary' object has no attribute 'areaUnderROC'"
+   ],
    "multi_summary_class": [
     "ok",
     "'LogisticRegressionTrainingSummary'"
@@ -292,10 +312,6 @@
      1.0,
      1.0
     ]
-   ],
-   "multi_summary_has_areaUnderROC": [
-    "ok",
-    "False"
    ],
    "multi_summary_labels": [
     "ok",
@@ -700,6 +716,10 @@
     "ValueError",
     "Logistic Regression getThreshold found inconsistent values for threshold (0.3) and thresholds (equivalent to 0.5)"
    ],
+   "class_param": [
+    "ok",
+    "('Param', 'undefined', 'maxIter', True, False)"
+   ],
    "clear": [
     "ok",
     "(None, 7, True)"
@@ -707,6 +727,10 @@
    "copy_bad_extra": [
     "TypeError",
     "Expecting a valid instance of Param, but received: maxIter"
+   ],
+   "copy_class_param": [
+    "ok",
+    "5"
    ],
    "copy_explainParams": [
     "ok",
@@ -876,6 +900,17 @@
     "KeyError",
     "Param(parent='LogisticRegression_<uid>', name='weightCol', doc='weight column name. If this is not set or empty, we treat all instance weights as 1.0.')"
    ],
+   "grid_of_class_param": [
+    "ok",
+    [
+     [
+      "('undefined', 'maxIter', 1)"
+     ],
+     [
+      "('undefined', 'maxIter', 2)"
+     ]
+    ]
+   ],
    "hasDefault_tol": [
     "ok",
     "True"
@@ -915,6 +950,18 @@
    "isSet_tol": [
     "ok",
     "False"
+   ],
+   "isinstance_estimator": [
+    "ok",
+    "True"
+   ],
+   "isinstance_params": [
+    "ok",
+    "True"
+   ],
+   "no_attribute": [
+    "AttributeError",
+    "'LogisticRegression' object has no attribute 'fooBarBaz'"
    ],
    "orig_maxIter": [
     "ok",
@@ -975,6 +1022,10 @@
    "param_parents_are_uid": [
     "ok",
     "True"
+   ],
+   "reader_class": [
+    "ok",
+    "('RemoteMLReader', 'pyspark.ml.connect.readwrite')"
    ],
    "repr_is_uid": [
     "ok",
@@ -1104,6 +1155,25 @@
    "thresholds_zero_second": [
     "ZeroDivisionError",
     "float division by zero"
+   ],
+   "writer_class": [
+    "ok",
+    "('RemoteMLWriter', 'pyspark.ml.connect.readwrite')"
+   ],
+   "writer_no_attribute": [
+    "AttributeError",
+    "'RemoteMLWriter' object has no attribute 'fooBarBaz'"
+   ],
+   "writer_option_map": [
+    "ok",
+    [
+     "('key', '1')",
+     "('x', 'y')"
+    ]
+   ],
+   "writer_should_overwrite": [
+    "ok",
+    "True"
    ]
   }
  }
