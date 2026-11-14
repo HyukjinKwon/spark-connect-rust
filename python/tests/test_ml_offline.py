@@ -270,13 +270,23 @@ def _session_analyses(service, spark):
     return [request for request in requests if request.session_id == spark.session_id]
 
 
+def _is_trees_prefetch(command):
+    # The Fetch of the trees of an ensemble, which the fit of a random forest or a gradient-boosted
+    # tree sends after its Fit, as PySpark's does: its _resetUid walks the params of the model and so
+    # evaluates its `trees`, a cached property.
+    ml = command.ml_command
+    return ml.HasField("fetch") and [m.method for m in ml.fetch.methods] == ["trees"]
+
+
 def _session_fit(service, spark, estimator, df, models):
-    # The Fit of estimator of df, the only request of the session that the fit sends. The model is
-    # kept in models, so that it is not released during the checks.
+    # The Fit of estimator of df: the only request of the session that the fit sends, but the Fetch
+    # of the trees of an ensemble (see _is_trees_prefetch). The model is kept in models, so that it
+    # is not released during the checks.
     sent = len(_session_requests(service, spark))
     service.execute_payload = _operator_info("model-1")
     models.append(estimator.fit(df))
-    (request,) = _session_requests(service, spark)[sent:]
+    requests = _session_requests(service, spark)[sent:]
+    (request,) = [r for r in requests if not _is_trees_prefetch(r.plan.command)]
     return request.plan.command.ml_command.fit
 
 
@@ -1620,7 +1630,11 @@ def test_ml_connect_setters_run_while_a_fit_or_an_evaluate_waits_as_pyspark(ml_m
             waiting.join(10)
         models.append(outcome)
         assert len(outcome) == 1 and not isinstance(outcome[0], Exception), (name, outcome)
-        (command,) = [c for c in _commands(service) if c.WhichOneof("command_type")]
+        (command,) = [
+            c
+            for c in _commands(service)
+            if c.WhichOneof("command_type") and not _is_trees_prefetch(c)
+        ]
         held = command.ml_command.evaluate if hasattr(obj, "evaluate") else command.ml_command.fit
         assert set(held.params.params) == set(_defaults_sent(name)), name
         assert _native_sent(spark, service, obj, models) == {
