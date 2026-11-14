@@ -1093,15 +1093,20 @@ def test_ml_connect_params_argument_of_fit_transform_and_evaluate_as_pyspark(ml_
     model_base = _relation(model.transform(df)).ml_relation.transform
     assert transformed(model, None) == model_base
     assert transformed(model, {}) == model_base
+    # A native transformer applies a non-empty map to a copy of itself, as PySpark's transform
+    # does (see test_feature_api_offline for its members), and so does a model with the Params
+    # API's copy.
+    assert transformed(assembler, {assembler.outputCol: "o"}) == _relation(
+        assembler.copy({assembler.outputCol: "o"}).transform(df)
+    ).ml_relation.transform
     for transformer in [assembler, model]:
-        # The model of LogisticRegression has the Params API's copy, which takes the map as
-        # PySpark's does, and raises the TypeError of its Param check.
-        message = (
-            "Expecting a valid instance of Param, but received: outputCol"
-            if transformer is model
-            else _NO_PARAM_MAP
-        )
-        refused(lambda: transformer.transform(df, {"outputCol": "o"}), message)
+        if transformer is model:
+            # The model of LogisticRegression has the Params API's copy, which takes the map as
+            # PySpark's does, and raises the TypeError of its Param check.
+            refused(
+                lambda: transformer.transform(df, {"outputCol": "o"}),
+                "Expecting a valid instance of Param, but received: outputCol",
+            )
         for value in [[], ("a",), "x", 3]:
             refused(lambda: transformer.transform(df, value), map_message.format(type(value)))
 
