@@ -98,6 +98,17 @@ def _ml_result(**fields):
     return pb2.ExecutePlanResponse(ml_command_result=pb2.MlCommandResult(**fields)).SerializeToString()
 
 
+def _answer_fit(service, estimator, ref="model-1", fits=1):
+    # The responses of the executions of `fits` fits of estimator: each fit's Fit, which returns the
+    # model of `ref`, and, of a LogisticRegression, the numClasses that its training summary reads
+    # after it (of a binary model). The others make one execution a fit.
+    if type(estimator).__name__ == "LogisticRegression":
+        numClasses = _ml_result(param=pb2.Expression.Literal(integer=2))
+        service.execute_payload_queue = [_operator_info(ref), numClasses] * fits
+    else:
+        service.execute_payload = _operator_info(ref)
+
+
 def _operator_info(ref_id):
     return _ml_result(
         operator_info=pb2.MlCommandResult.MlOperatorInfo(obj_ref=pb2.ObjectRef(id=ref_id))
@@ -274,9 +285,13 @@ def _session_fit(service, spark, estimator, df, models):
     # The Fit of estimator of df, the only request of the session that the fit sends. The model is
     # kept in models, so that it is not released during the checks.
     sent = len(_session_requests(service, spark))
-    service.execute_payload = _operator_info("model-1")
+    _answer_fit(service, estimator)
     models.append(estimator.fit(df))
-    (request,) = _session_requests(service, spark)[sent:]
+    request, *fetches = _session_requests(service, spark)[sent:]
+    # A LogisticRegression's fit is followed by the numClasses of its training summary.
+    fetched = [r.plan.command.ml_command.fetch.methods[-1].method for r in fetches]
+    expected = ["numClasses"] if type(estimator).__name__ == "LogisticRegression" else []
+    assert fetched == expected
     return request.plan.command.ml_command.fit
 
 
@@ -344,7 +359,10 @@ def test_ml_connect_logistic_regression_takes_the_params_of_pyspark_ml(ml_mock):
 
     assert len(parameters(LogisticRegression)) == 21
     assert parameters(LogisticRegression) == parameters(official)
-    setters = {name for name in dir(LogisticRegression) if name.startswith("set")} - {"setParams"}
+    setters = {name for name in dir(LogisticRegression) if name.startswith("set")} - {
+        "set",
+        "setParams",
+    }
     assert setters == {n for n in dir(official) if n.startswith("set")} - {"set", "setParams"}
     assert setters == {"set" + name[0].upper() + name[1:] for name, *_ in parameters(official)}
     for param in ("numTrainWorkers", "batchSize", "learningRate", "momentum", "seed"):
@@ -701,7 +719,7 @@ def test_ml_connect_setters_set_the_params_of_their_receiver_as_pyspark(ml_mock)
             assert obj.evaluate(df) == 0.5
             params = _commands_but_deletes(service, sent)[0].ml_command.evaluate.params
         elif hasattr(obj, "fit"):
-            service.execute_payload = _operator_info("model-1")
+            _answer_fit(service, obj)
             models.append(obj.fit(df))
             params = _commands_but_deletes(service, sent)[0].ml_command.fit.params
         else:
@@ -994,7 +1012,7 @@ def test_ml_connect_params_argument_of_fit_transform_and_evaluate_as_pyspark(ml_
     def fitted(estimator, *params):
         # The params of the fit request, which the fits of a OneVsRest name with its uid.
         sent = len(service.execute_requests)
-        service.execute_payload = _operator_info("model-1")
+        _answer_fit(service, estimator)
         service.query_payload = _label_query_result(estimator)
         models.append(estimator.fit(df, *params))
         service.query_payload = None
@@ -1040,8 +1058,10 @@ def test_ml_connect_params_argument_of_fit_transform_and_evaluate_as_pyspark(ml_
     base = fitted(logistic)
     assert fitted(logistic, None) == base
     assert fitted(logistic, {}) == base
-    refused(lambda: logistic.fit(df, {"maxIter": 2}), _NO_PARAM_MAP)
-    refused(lambda: logistic.fit(df, [{"maxIter": 2}]), _NO_PARAM_MAP)
+    # As PySpark's, a LogisticRegression, which has the Params API's copy, takes the map as one.
+    not_a_param = "Expecting a valid instance of Param, but received: maxIter"
+    refused(lambda: logistic.fit(df, {"maxIter": 2}), not_a_param)
+    refused(lambda: logistic.fit(df, [{"maxIter": 2}]), not_a_param)
     refused(lambda: logistic.fit(df, "x"), fit_message.format(str))
     assert fitted(logistic, None) == base
 
@@ -1074,13 +1094,19 @@ def test_ml_connect_params_argument_of_fit_transform_and_evaluate_as_pyspark(ml_
     assert transformed(model, None) == model_base
     assert transformed(model, {}) == model_base
     # A native transformer applies a non-empty map to a copy of itself, as PySpark's transform
-    # does (see test_feature_api_offline for its members); a model still refuses it.
+    # does (see test_feature_api_offline for its members), and so does a model with the Params
+    # API's copy.
     assert transformed(assembler, {assembler.outputCol: "o"}) == _relation(
         assembler.copy({assembler.outputCol: "o"}).transform(df)
     ).ml_relation.transform
     for transformer in [assembler, model]:
         if transformer is model:
-            refused(lambda: transformer.transform(df, {"outputCol": "o"}), _NO_PARAM_MAP)
+            # The model of LogisticRegression has the Params API's copy, which takes the map as
+            # PySpark's does, and raises the TypeError of its Param check.
+            refused(
+                lambda: transformer.transform(df, {"outputCol": "o"}),
+                "Expecting a valid instance of Param, but received: outputCol",
+            )
         for value in [[], ("a",), "x", 3]:
             refused(lambda: transformer.transform(df, value), map_message.format(type(value)))
 
@@ -1106,16 +1132,21 @@ def test_ml_connect_fit_of_a_list_of_param_maps_as_pyspark(ml_mock):
     from pyspark.ml.connect.recommendation import ALS
 
     spark, service = ml_mock
+    # The models of the fits stay alive to the end: a Delete of a released model is an execution
+    # too, which would take the response of a queued fit (`_answer_fit`).
+    kept = []
     df = spark.range(1)
     fit_message = "Params must be either a param map or a list/tuple of param maps, but got {}."
 
     def fitted(estimator, value):
         # The result of fit(df, value), and the params of the fit requests that it sent, in order.
         sent = len(service.execute_requests)
-        service.execute_payload = _operator_info("model-list")
+        fits = len(value) if isinstance(value, (list, tuple)) else 1
+        _answer_fit(service, estimator, "model-list", fits)
         service.query_payload = _label_query_result(estimator)
         try:
             models = estimator.fit(df, value)
+            kept.append(models)
         finally:
             service.query_payload = None
         return models, [c.ml_command.fit.params for c in _commands_but_deletes(service, sent)]
@@ -1157,7 +1188,7 @@ def test_ml_connect_fit_of_a_list_of_param_maps_as_pyspark(ml_mock):
         refused(lambda: estimator.fit(df, [[1]]), fit_message.format(int))
         # The fit of the first map is sent before the second element raises.
         sent = len(service.execute_requests)
-        service.execute_payload = _operator_info("model-list")
+        _answer_fit(service, estimator, "model-list")
         service.query_payload = _label_query_result(estimator)
         with pytest.raises(TypeError) as error:
             estimator.fit(df, [{}, 1])
@@ -1383,7 +1414,7 @@ def _native_request(spark, service, obj, models):
         evaluate = _commands_but_deletes(service, sent)[0].ml_command.evaluate
         return evaluate.evaluator, evaluate.params
     if hasattr(obj, "fit"):
-        service.execute_payload = _operator_info("model-1")
+        _answer_fit(service, obj)
         service.query_payload = _label_query_result(obj)
         models.append(obj.fit(df))
         service.query_payload = None
@@ -1606,7 +1637,7 @@ def test_ml_connect_setters_run_while_a_fit_or_an_evaluate_waits_as_pyspark(ml_m
             service.execute_payload = _ml_result(param=pb2.Expression.Literal(double=0.5))
             call = obj.evaluate
         else:
-            service.execute_payload = _operator_info("model-1")
+            _answer_fit(service, obj)
             call = obj.fit
         outcome = []
 
@@ -1626,7 +1657,13 @@ def test_ml_connect_setters_run_while_a_fit_or_an_evaluate_waits_as_pyspark(ml_m
             waiting.join(10)
         models.append(outcome)
         assert len(outcome) == 1 and not isinstance(outcome[0], Exception), (name, outcome)
-        (command,) = [c for c in _commands(service) if c.WhichOneof("command_type")]
+        # The request of the fit or the evaluate, and, of a LogisticRegression, the numClasses of
+        # its training summary, which follows the fit.
+        (command,) = [
+            c
+            for c in _commands(service)
+            if c.WhichOneof("command_type") and c.ml_command.WhichOneof("command") != "fetch"
+        ]
         held = command.ml_command.evaluate if hasattr(obj, "evaluate") else command.ml_command.fit
         assert set(held.params.params) == set(_defaults_sent(name)), name
         assert _native_sent(spark, service, obj, models) == {
@@ -4195,8 +4232,9 @@ def test_native_ml_rejects_pandas_before_any_requests(ml_mock, pandas_ml_input, 
     import pyspark.ml.connect as connect
 
     spark, service = ml_mock
-    service.execute_payload = _operator_info("model-1")
-    model = getattr(connect, estimator_name)().fit(spark.range(1))
+    estimator = getattr(connect, estimator_name)()
+    _answer_fit(service, estimator)
+    model = estimator.fit(spark.range(1))
 
     def requests():
         return (_requests_but_deletes(service), len(service.analyze_requests),

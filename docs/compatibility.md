@@ -262,8 +262,11 @@ classes to build on:
 
 The native Python classes of `pyspark.ml.connect` follow the API of `pyspark.ml` 4.3.0 over Spark
 Connect, class by class. `LinearSVC` (with `LinearSVCModel`, `LinearSVCSummary` and
-`LinearSVCTrainingSummary`) and `KMeans` (with `KMeansModel` and `KMeansSummary`) follow it in
-full; the other native classes follow as they are completed. A class that follows it has:
+`LinearSVCTrainingSummary`), `KMeans` (with `KMeansModel` and `KMeansSummary`) and
+`LogisticRegression` (with `LogisticRegressionModel`, `LogisticRegressionSummary`,
+`LogisticRegressionTrainingSummary`, `BinaryLogisticRegressionSummary` and
+`BinaryLogisticRegressionTrainingSummary`) follow it in full; the other native classes follow as
+they are completed. A class that follows it has:
 
 - **The Params API of `pyspark.ml.param.Params`**: `params`, `getParam`, `hasParam`, `isSet`,
   `isDefined`, `hasDefault`, `getOrDefault`, `explainParam(s)`, `extractParamMap`, `set`, `clear`
@@ -426,6 +429,13 @@ not given is not sent, so the server's default applies. A list param without ele
 accepted by its constructor and setters, and a fit, transform or evaluate raises PySpark's
 `CANNOT_INFER_ARRAY_ELEMENT_TYPE` for it, as PySpark's serialization does.
 
+The `getThreshold`, `getThresholds`, `setThreshold` and `setThresholds` methods of the estimator
+and of its model, and their `threshold` and `thresholds` Param objects, are PySpark's
+`_LogisticRegressionParams` methods, in Python, so they match its errors: the `ValueError` of
+the equivalent threshold when `thresholds` has a length other than two, and of an inconsistent
+pair, the `ZeroDivisionError` and `TypeError` of their arithmetic, and the `KeyError` of an unset
+`thresholds`. The `%g` values of the inconsistency message are formatted by Python.
+
 A native class has the `setParams` of its `pyspark.ml` class. It is keyword-only, takes the params
 of the constructor, sets the params that it is given, in order, and returns the object, as
 PySpark's `_set` does. As PySpark's, the `setParams` of `LogisticRegression` then checks its
@@ -433,8 +443,11 @@ PySpark's `_set` does. As PySpark's, the `setParams` of `LogisticRegression` the
 `CrossValidator`, which takes `numFolds`, `parallelism` and `seed`, with a default of `None` for
 the first two. The `params` argument of a fit, transform or
 evaluate, which `pyspark.ml` takes as a param map, is accepted: `None` and an empty dict leave the
-params as they are. The native classes have no Param objects to key a map by, so a non-empty
-map raises a `TypeError` that says the native classes take no param map. A list or tuple of maps to
+params as they are. A non-empty map of a class that has the Params API's `copy` (see above) is
+copied with the map, as `Estimator.fit` and `Transformer.transform` copy it, so a key that is not a
+Param raises PySpark's `TypeError` of that copy. The other native classes have no Param objects to
+key a map by, so a non-empty map raises a `TypeError` that says the native classes take no param
+map. A list or tuple of maps to
 a fit is fitted as `pyspark.ml` fits it: one model per map, in order, returned as a list,
 so that `[]` fits nothing and does not read the dataset. Any other value raises the `TypeError` that
 `pyspark.ml` raises for it. The `params` argument is checked first, before the dataset, as
@@ -722,6 +735,12 @@ transform. `LinearSVC::fit_multiple(&df, &maps)` fits one model per param map, a
 rather than a Python object, `fit_multiple` returns a `Vec` rather than an iterator, and `read()`
 is `load`, with no reader object. The summary's DataFrames are built on the training DataFrame,
 as PySpark builds them.
+
+In Python, `LogisticRegression` and its model follow the full API of `pyspark.ml` in the same way,
+with `coefficientMatrix`, `interceptVector`, `predictProbability`, the `summary` property and
+`hasSummary`. The fit of a LogisticRegression is followed by a `numClasses` request, which its
+training summary reads, as PySpark's does: the summary is the binary one of two classes or fewer,
+else the multinomial one.
 
 ## Native Pipeline and CrossValidator: fit is not implemented
 
