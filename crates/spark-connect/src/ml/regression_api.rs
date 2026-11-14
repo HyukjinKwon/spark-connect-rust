@@ -6,10 +6,8 @@
 //! members are fetches of its server-side object, as PySpark's `_call_java` of each member. Each
 //! family has its own file of its model's members, its summary types and its persistence.
 
-use crate::dataframe::DataFrame;
-use crate::ml::object::{FetchOutput, MlTarget, MlValue};
-use crate::ml::{CachedModel, MlMatrix};
-use crate::session::SparkSession;
+use crate::ml::object::{MlTarget, MlValue};
+use crate::ml::MlMatrix;
 use spark_connect_core::error::{Result, SparkError};
 
 mod aft;
@@ -21,21 +19,9 @@ mod linear;
 pub use linear::*;
 mod tree;
 
-/// The target of the training summary of the model `model`, as `try_remote_fit` of PySpark builds
-/// it: the summary of the model's object (`"<model>.summary"`), which the server recreates of
-/// `summary_dataset` (the model's `_summary_dataset` of the training dataset) when it has lost the
-/// summary.
-pub(crate) fn training_summary(model: &CachedModel, summary_dataset: &DataFrame) -> MlTarget {
-    MlTarget::object(model)
-        .child("summary")
-        .with_summary_dataset(summary_dataset)
-}
-
-/// The target of the summary that the server returned of `evaluate` (its id), which this client
-/// does not release, as PySpark wraps the id.
-pub(crate) fn evaluated_summary(session: &SparkSession, output: FetchOutput) -> Result<MlTarget> {
-    Ok(MlTarget::unowned(session, &output.into_string()?))
-}
+// The targets of the training summary of a fit and of the summary of an `evaluate`, which keeps
+// its model alive (see `crate::ml::object`).
+pub(crate) use crate::ml::object::{evaluated_summary, training_summary};
 
 /// The training summary of a model of the class `class`, or the error of PySpark's `summary` of a
 /// model that has none (a model that was loaded rather than fitted).
