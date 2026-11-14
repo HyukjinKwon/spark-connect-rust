@@ -4,7 +4,7 @@ mod common;
 use common::live_session;
 use spark_connect::column::{col, lit_double, lit_string};
 use spark_connect::expression::Expression;
-use spark_connect::ml::{DecisionTreeClassifier, Estimator};
+use spark_connect::ml::{DecisionTreeClassifier, Estimator, Model, Transformer};
 use spark_connect::{Column, DataFrame, SparkSession};
 
 fn vectors(s: &SparkSession, sql: &str, name: &str) -> DataFrame {
@@ -92,7 +92,7 @@ fn decision_tree_classifier_learns_nonlinear_labels_and_keeps_cached_models_aliv
         };
         r.id
     };
-    assert_ne!(object_id(first.as_ref()), object_id(second.as_ref()));
+    assert_ne!(object_id(&first), object_id(&second));
     let mut cloned = first.clone_box();
     let delayed = first
         .transform(&held_out)

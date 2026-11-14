@@ -4524,8 +4524,7 @@ impl Estimator for DecisionTreeClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -5128,8 +5127,7 @@ impl Estimator for GBTClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -5473,6 +5471,7 @@ impl RandomForestClassifier {
             ),
             params: self.params.clone(),
             cached,
+            training_summary: None,
         })
     }
 }
@@ -5498,8 +5497,7 @@ impl Estimator for RandomForestClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -5512,6 +5510,9 @@ pub struct RandomForestClassificationModel {
     operator: MlOperator,
     params: Params,
     cached: CachedModel,
+    /// The target of the training summary (`<model>.summary`), which a fit sets with the transform
+    /// of its training dataset, so that the server can recreate the summary; None otherwise.
+    training_summary: Option<MlTarget>,
 }
 
 impl Transformer for RandomForestClassificationModel {

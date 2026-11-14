@@ -10,8 +10,8 @@ use spark_connect::column::col;
 use spark_connect::expression::Expression;
 use spark_connect::ml::{
     attribute_relation, fetch, read, read_model, read_operator, write_object, write_operator,
-    Estimator, FetchArg, LinearSVC, LinearSVCModel, MlTarget, MlValue, MlVector, OperatorType,
-    RandomForestClassifier,
+    Estimator, FetchArg, LinearSVC, LinearSVCModel, MlTarget, MlValue, MlVector, Model,
+    OperatorType, RandomForestClassifier,
 };
 use spark_connect::{Column, DataFrame, SparkSession};
 
