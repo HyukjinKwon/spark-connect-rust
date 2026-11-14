@@ -164,6 +164,12 @@ def _power_iteration_cases(rec, spark, base, found):
         "assignClusters_clusters",
         lambda: sorted(r.cluster for r in pic.assignClusters(graph).collect()),
     )
+    # A dataset that is not a DataFrame: PySpark's helper call sends it as a literal, in a lazy
+    # DataFrame, and the server rejects it when the DataFrame is collected; one that cannot be a
+    # literal raises the error of its conversion before any request.
+    for label, other in [("none", None), ("int", 5), ("str", "t"), ("list", [1, 2])]:
+        rec("assignClusters_of_" + label, lambda other=other: pic.assignClusters(other).collect())
+    rec("assignClusters_of_object", lambda: pic.assignClusters(object()))
     rec("params_getters", lambda: [pic.getK(), pic.getMaxIter(), pic.getInitMode()])
     rec("uid_prefix", lambda: pic.uid.split("_")[0])
     rec("save", lambda: pic.write().overwrite().save(base + "/pic"))

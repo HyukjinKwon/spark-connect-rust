@@ -5051,11 +5051,36 @@ native_pymethods! {
         set_param(slf, "weightCol", Kind::Str, value)
     }
 
+    /// As PySpark's `assignClusters`, a helper call (`invoke_helper_relation`) of the dataset and
+    /// the params: of the active session of the thread, whose absence is the AssertionError of its
+    /// `assert`, and of the dataset as `serialize` sends it, a DataFrame as its relation and
+    /// another value as a literal, which the server rejects when the result is analyzed or
+    /// collected (a value that cannot be one raises PySpark's error of its conversion).
     #[pyo3(name = "assignClusters")]
     fn assign_clusters(slf: &Bound<'_, Self>, dataset: &Bound<'_, PyAny>) -> PyResult<PyDataFrame> {
-        let df = helper_dataset_of(dataset, "assignClusters")?;
+        use spark_connect::ml::{attribute_relation, FetchArg, MlTarget};
+        let py = slf.py();
         let algorithm = snapshot(slf)?;
-        Ok(PyDataFrame::new(algorithm.assign_clusters(&df).to_pyerr()?))
+        let session = crate::session::active_session(py)
+            .ok_or_else(|| pyo3::exceptions::PyAssertionError::new_err(()))?
+            .borrow(py)
+            .session
+            .clone();
+        let mut args = vec![object::fetch_arg_of(dataset)?];
+        args.extend(
+            algorithm
+                .assign_clusters_arguments()
+                .into_iter()
+                .map(FetchArg::Literal),
+        );
+        Ok(PyDataFrame::new(
+            attribute_relation(
+                &MlTarget::helper(&session),
+                "powerIterationClusteringAssignClusters",
+                args,
+            )
+            .to_pyerr()?,
+        ))
     }
 }
 

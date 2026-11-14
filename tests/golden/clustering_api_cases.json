@@ -794,6 +794,26 @@
    "ok",
    "6"
   ],
+  "assignClusters_of_int": [
+   "UnknownException",
+   "(java.lang.NoSuchMethodException) No method: org.apache.spark.ml.util.ConnectHelper.powerIterationClusteringAssignClusters(int, int, int, java.lang.String, java.lang.String, java.lang.String, java.lan"
+  ],
+  "assignClusters_of_list": [
+   "SparkException",
+   "[CONNECT_ML.UNSUPPORTED_EXCEPTION] Generic Spark Connect ML error. Unsupported array array {"
+  ],
+  "assignClusters_of_none": [
+   "SparkException",
+   "[CONNECT_ML.UNSUPPORTED_EXCEPTION] Generic Spark Connect ML error. NULL not supported SQLSTATE: XX000"
+  ],
+  "assignClusters_of_object": [
+   "PySparkTypeError",
+   "[UNSUPPORTED_DATA_TYPE] Unsupported DataType `object`."
+  ],
+  "assignClusters_of_str": [
+   "UnknownException",
+   "(java.lang.NoSuchMethodException) No method: org.apache.spark.ml.util.ConnectHelper.powerIterationClusteringAssignClusters(java.lang.String, int, int, java.lang.String, java.lang.String, java.lang.Str"
+  ],
   "loaded_assignClusters_count": [
    "ok",
    "6"
