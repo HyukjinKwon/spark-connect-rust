@@ -6,7 +6,19 @@ import os
 
 import numpy as np
 import pytest
-from _statistics_cases import FIXTURE, REFERENCE, api, assert_frame, dataset, helper, summary
+from _statistics_cases import (
+    ARGUMENTS,
+    FIXTURE,
+    REFERENCE,
+    api,
+    argument_case_id,
+    assert_frame,
+    call_with_arguments,
+    dataset,
+    first_line,
+    helper,
+    summary,
+)
 from pyspark.ml.linalg import DenseMatrix, DenseVector, Vectors
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -25,6 +37,19 @@ def session():
 @pytest.fixture(scope="module")
 def frames(session):
     return {name: dataset(session, name) for name in FIXTURE["datasets"]}
+
+
+@pytest.mark.parametrize(
+    "case", [case for case in ARGUMENTS["cases"] if "sent" in case], ids=argument_case_id
+)
+def test_helper_arguments_of_other_types_are_rejected_by_the_server(session, case):
+    # The helper call of an argument of another type than it takes, which PySpark sends: the
+    # server rejects it when the lazy result is collected, with the error of official PySpark.
+    result = call_with_arguments(case, session.range(1))
+    with pytest.raises(Exception) as error:
+        result.collect()
+    assert type(error.value).__name__ == case["collect_error"]["class"]
+    assert first_line(error.value) == case["collect_error"]["message"]
 
 
 @pytest.mark.parametrize("case", FIXTURE["helpers"])
