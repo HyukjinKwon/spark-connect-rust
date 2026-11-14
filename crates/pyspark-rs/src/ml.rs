@@ -1907,7 +1907,6 @@ impl params_api::NativeInstance for PyMultilayerPerceptronClassifier {
 #[pyclass(name = "OneVsRest", module = "pyspark.ml.connect.classification")]
 pub struct PyOneVsRest {
     inner: OneVsRest,
-    unsendable: Vec<&'static str>,
     /// The Python values of the identity params, which the core does not hold: the classifier.
     raw: Vec<(&'static str, Py<PyAny>)>,
 }
@@ -1922,9 +1921,38 @@ const ONE_VS_REST_PARAMS: &[(&str, Kind)] = &[
     ("parallelism", Kind::ClampedInt),
 ];
 
+impl params_api::ParamsHolder for PyOneVsRest {
+    fn set_value(&self, py: Python<'_>, name: &str) -> PyResult<Option<Py<PyAny>>> {
+        if let Some((_, value)) = self.raw.iter().find(|(n, _)| *n == name) {
+            return Ok(Some(value.clone_ref(py)));
+        }
+        params_api::literal_value(py, self.inner.params(), name)
+    }
+
+    fn put(&mut self, py: Python<'_>, name: &'static str, value: Converted) -> PyResult<()> {
+        self.raw.retain(|(n, _)| *n != name);
+        let params = std::mem::take(self.inner.params_mut());
+        *self.inner.params_mut() = match value {
+            Converted::Raw(value) => {
+                self.raw.push((name, value));
+                params.clear_param(name)
+            }
+            value => object::put_model_param(py, params, name, value)?,
+        };
+        Ok(())
+    }
+
+    fn unset(&mut self, name: &'static str) -> PyResult<()> {
+        self.raw.retain(|(n, _)| *n != name);
+        let params = std::mem::take(self.inner.params_mut()).clear_param(name);
+        *self.inner.params_mut() = params;
+        Ok(())
+    }
+}
+
 native_pymethods! {
     PyOneVsRest;
-    jvm: "org.apache.spark.ml.classification.OneVsRest", op: Estimator;
+    persistence: python;
     params: [
         "classifier" => ("getClassifier", get_classifier, param_classifier),
         "featuresCol" => ("getFeaturesCol", get_features_col, param_features_col),
@@ -1943,11 +1971,10 @@ native_pymethods! {
     fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
         let mut this = Self {
             inner: OneVsRest::new(),
-            unsendable: Vec::new(),
             raw: Vec::new(),
         };
         check_classifier_kwarg(kwargs)?;
-        init_params(&mut this, "OneVsRest", &[], ONE_VS_REST_PARAMS, args, kwargs)?;
+        set_ovr_params(&mut this, args.py(), "__init__", args, kwargs)?;
         Ok(this)
     }
 
@@ -1962,7 +1989,14 @@ native_pymethods! {
         kwargs: Option<&Bound<'py, PyDict>>,
     ) -> PyResult<Bound<'py, Self>> {
         check_classifier_kwarg(kwargs)?;
-        set_params_of(slf, "OneVsRest", ONE_VS_REST_PARAMS, args, kwargs)
+        let py = slf.py();
+        for (name, kind, value) in
+            bind_params("setParams", "OneVsRest", &[], ONE_VS_REST_PARAMS, args, kwargs)?
+        {
+            let converted = convert(name, kind, &value)?;
+            params_api::ParamsHolder::put(&mut *slf.try_borrow_mut()?, py, name, converted)?;
+        }
+        Ok(slf)
     }
 
     #[pyo3(name = "setFeaturesCol")]
@@ -1970,7 +2004,7 @@ native_pymethods! {
         slf: Bound<'py, Self>,
         value: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, Self>> {
-        set_param(slf, "featuresCol", Kind::Str, value)
+        set_ovr(slf, "featuresCol", Kind::Str, value)
     }
 
     #[pyo3(name = "setLabelCol")]
@@ -1978,7 +2012,7 @@ native_pymethods! {
         slf: Bound<'py, Self>,
         value: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, Self>> {
-        set_param(slf, "labelCol", Kind::Str, value)
+        set_ovr(slf, "labelCol", Kind::Str, value)
     }
 
     #[pyo3(name = "setPredictionCol")]
@@ -1986,7 +2020,7 @@ native_pymethods! {
         slf: Bound<'py, Self>,
         value: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, Self>> {
-        set_param(slf, "predictionCol", Kind::Str, value)
+        set_ovr(slf, "predictionCol", Kind::Str, value)
     }
 
     #[pyo3(name = "setRawPredictionCol")]
@@ -1994,7 +2028,7 @@ native_pymethods! {
         slf: Bound<'py, Self>,
         value: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, Self>> {
-        set_param(slf, "rawPredictionCol", Kind::Str, value)
+        set_ovr(slf, "rawPredictionCol", Kind::Str, value)
     }
 
     #[pyo3(name = "setWeightCol")]
@@ -2002,7 +2036,7 @@ native_pymethods! {
         slf: Bound<'py, Self>,
         value: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, Self>> {
-        set_param(slf, "weightCol", Kind::Str, value)
+        set_ovr(slf, "weightCol", Kind::Str, value)
     }
 
     #[pyo3(name = "setParallelism")]
@@ -2010,7 +2044,7 @@ native_pymethods! {
         slf: Bound<'py, Self>,
         value: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, Self>> {
-        set_param(slf, "parallelism", Kind::ClampedInt, value)
+        set_ovr(slf, "parallelism", Kind::ClampedInt, value)
     }
 
     /// The classifier, as `OneVsRest.setClassifier`: a native classification estimator, or None.
@@ -2022,7 +2056,7 @@ native_pymethods! {
         if !value.is_none() {
             native_classifier(value, false)?;
         }
-        set_param(slf, "classifier", Kind::Identity, value)
+        set_ovr(slf, "classifier", Kind::Identity, value)
     }
 
     #[pyo3(signature = (dataset, params=None))]
@@ -2030,15 +2064,14 @@ native_pymethods! {
         slf: &Bound<'_, Self>,
         dataset: &Bound<'_, PyAny>,
         params: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Fitted<PyMLModel>> {
+    ) -> PyResult<Fitted<classification_api::PyOneVsRestModel>> {
         // A list of param maps fits once per map (`fit_with`), each in PySpark's order below.
-        fit_with(slf, dataset, params, || -> PyResult<PyMLModel> {
+        fit_with(slf, dataset, params, || -> PyResult<_> {
             let py = slf.py();
             reject_pandas(dataset, "fit")?;
-            let classifier = slf
-                .try_borrow()?
-                .classifier_object(py)
-                .ok_or_else(|| PyValueError::new_err("OneVsRest requires a native classifier"))?;
+            // PySpark's `_fit` reads the classifier of the param, which raises its KeyError when
+            // it is unset.
+            let classifier = slf.call_method0("getClassifier")?.unbind();
             // PySpark's `_fit` reads the max label first, by `dataset.agg`: another object raises the
             // AttributeError of `agg`.
             let df = match dataset.extract::<PyRef<'_, PyDataFrame>>() {
@@ -2051,6 +2084,7 @@ native_pymethods! {
                     )));
                 }
             };
+            let defaults = params_api::fit_defaults(slf)?;
             let mut core = slf.try_borrow()?.inner.clone();
             core.check_required_params().to_pyerr()?;
             let session = df.spark_session();
@@ -2059,9 +2093,13 @@ native_pymethods! {
             // or infinite max, and a null parallelism, raise their errors of this Python.
             let builtins = py.import("builtins")?;
             let num_classes = builtins.getattr("int")?.call1((max,))?.add(1)?;
-            if !native_classifier(classifier.bind(py), false)?.supports_weight()
-                && core.weight_col().is_some_and(|s| !s.is_empty())
-            {
+            // A None classifier fails at its first use by the fits, as PySpark's
+            // `classifier.labelCol` does.
+            if classifier.bind(py).is_none() {
+                let _ = classifier.bind(py).getattr("labelCol")?;
+            }
+            let supports_weight = native_classifier(classifier.bind(py), false)?.supports_weight();
+            if !supports_weight && core.weight_col().is_some_and(|s| !s.is_empty()) {
                 py.import("warnings")?.call_method1(
                     "warn",
                     ("weightCol is ignored, as it is not supported by this classifier",),
@@ -2095,10 +2133,15 @@ native_pymethods! {
                 core.fit_classes(&df, num_classes, threads as usize)
                     .map_err(Box::new)
             })?;
-            Ok(PyMLModel {
-                model: Box::new(model),
-                session_id: session.session_id().to_string(),
-            })
+            // The model has the defaults of the estimator, as `_copyValues` gives it.
+            let mut fitted = classification_api::PyOneVsRestModel::fitted(
+                py,
+                Box::new(model),
+                &df,
+                classifier,
+            )?;
+            params_api::copy_defaults(py, defaults, &mut fitted)?;
+            Ok(fitted)
         })
     }
 
@@ -2113,52 +2156,96 @@ native_pymethods! {
     ) -> PyResult<params_api::PyFitMultipleIterator> {
         params_api::fit_multiple(slf.as_any(), dataset, paramMaps)
     }
+
+    /// As `Params.copy`, which copies the classifier too (see `duplicate`).
+    #[pyo3(name = "copy", signature = (extra=None))]
+    fn __params_copy<'py>(
+        slf: &Bound<'py, Self>,
+        extra: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        params_api::copy(slf, extra)
+    }
+
+    /// The writer of the estimator, as `JavaMLWritable.write` (`RemoteMLWriter`), of the server's
+    /// OneVsRest, which the server does not write (see the compatibility notes).
+    fn write(slf: &Bound<'_, Self>) -> PyResult<object::PyMLWriter> {
+        let uid: String = slf.getattr("uid")?.extract()?;
+        let this = slf.try_borrow()?;
+        let operator = spark_connect::ml::MlOperator::with_uid(
+            "org.apache.spark.ml.classification.OneVsRest",
+            &uid,
+            spark_connect::ml::OperatorType::Estimator,
+        );
+        Ok(object::PyMLWriter::new(object::WriteTarget::Operator(
+            operator,
+            this.inner.params().clone(),
+        )))
+    }
+
+    /// Save to `path`, as `MLWritable.save`: `self.write().save(path)`.
+    fn save(slf: &Bound<'_, Self>, path: &str) -> PyResult<()> {
+        slf.call_method0("write")?.call_method1("save", (path,))?;
+        Ok(())
+    }
+
+    /// The reader of the class, as `JavaMLReadable.read` (`RemoteMLReader`).
+    #[classmethod]
+    fn read(cls: &Bound<'_, pyo3::types::PyType>) -> object::PyMLReader {
+        let _ = cls;
+        object::PyMLReader::new(
+            "org.apache.spark.ml.classification.OneVsRest",
+            spark_connect::ml::OperatorType::Estimator,
+            <PyOneVsRest>::__from_read,
+        )
+    }
+
+    /// Load from `path`, as `MLReadable.load`: `cls.read().load(path)`.
+    #[classmethod]
+    fn load(cls: &Bound<'_, pyo3::types::PyType>, path: &str) -> PyResult<Py<PyAny>> {
+        Ok(cls.call_method0("read")?.call_method1("load", (path,))?.unbind())
+    }
 }
 
 impl PyOneVsRest {
-    /// The classifier, if the param `classifier` is set to an object (not None).
-    fn classifier_object(&self, py: Python<'_>) -> Option<Py<PyAny>> {
-        self.raw
-            .iter()
-            .find(|(name, _)| *name == "classifier")
-            .map(|(_, value)| value.clone_ref(py))
+    /// The instance of what a `Read` returns, as `RemoteMLReader.loadInstance`.
+    fn __from_read<'py>(
+        py: Python<'py>,
+        read: spark_connect::ml::ReadResult,
+    ) -> PyResult<Py<PyAny>> {
+        params_api::from_read::<PyOneVsRest>(py, read)
     }
 }
 
-/// The native classifier of a `classifier` keyword of a constructor or `setParams`, which
-/// PySpark takes as any object: checked here, as `setClassifier` checks it.
-fn check_classifier_kwarg(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
-    if let Some(classifier) = kwargs.and_then(|kw| kw.get_item("classifier").ok().flatten()) {
-        if !classifier.is_none() {
-            native_classifier(&classifier, false)?;
-        }
+/// Set the param `name` of a OneVsRest of the converter kind `kind`, and return `slf`, as `_set`.
+fn set_ovr<'py>(
+    slf: Bound<'py, PyOneVsRest>,
+    name: &'static str,
+    kind: Kind,
+    value: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyOneVsRest>> {
+    let py = slf.py();
+    // Converted before the borrow: the conversion runs Python code.
+    let converted = convert(name, kind, value)?;
+    params_api::ParamsHolder::put(&mut *slf.try_borrow_mut()?, py, name, converted)?;
+    Ok(slf)
+}
+
+/// Set the params of a constructor (`__init__`) or `setParams` of a OneVsRest, as PySpark's
+/// `@keyword_only` binds them to `_set`.
+fn set_ovr_params(
+    target: &mut PyOneVsRest,
+    py: Python<'_>,
+    method: &str,
+    args: &Bound<'_, PyTuple>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<()> {
+    for (name, kind, value) in
+        bind_params(method, "OneVsRest", &[], ONE_VS_REST_PARAMS, args, kwargs)?
+    {
+        let converted = convert(name, kind, &value)?;
+        params_api::ParamsHolder::put(target, py, name, converted)?;
     }
     Ok(())
-}
-
-impl Native for PyOneVsRest {
-    type Core = OneVsRest;
-    fn inner(&self) -> &OneVsRest {
-        &self.inner
-    }
-    fn params_mut(&mut self) -> &mut Params {
-        self.inner.params_mut()
-    }
-    fn params(&self) -> &Params {
-        self.inner.params()
-    }
-    fn unsendable(&self) -> &[&'static str] {
-        &self.unsendable
-    }
-    fn unsendable_mut(&mut self) -> &mut Vec<&'static str> {
-        &mut self.unsendable
-    }
-    fn raw_params_mut(&mut self) -> Option<&mut Vec<(&'static str, Py<PyAny>)>> {
-        Some(&mut self.raw)
-    }
-    fn raw_params(&self) -> Option<&[(&'static str, Py<PyAny>)]> {
-        Some(&self.raw)
-    }
 }
 
 impl params_api::NativeInstance for PyOneVsRest {
@@ -2180,7 +2267,6 @@ impl params_api::NativeInstance for PyOneVsRest {
             py,
             Self {
                 inner: self.inner.clone(),
-                unsendable: self.unsendable.clone(),
                 raw,
             },
         )
@@ -2193,6 +2279,17 @@ impl params_api::NativeInstance for PyOneVsRest {
     fn set_uid(&mut self, uid: &str) {
         Estimator::operator_mut(&mut self.inner).uid = uid.to_string();
     }
+}
+
+/// The native classifier of a `classifier` keyword of a constructor or `setParams`, which PySpark
+/// takes as any object: checked here, as `setClassifier` checks it.
+fn check_classifier_kwarg(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
+    if let Some(classifier) = kwargs.and_then(|kw| kw.get_item("classifier").ok().flatten()) {
+        if !classifier.is_none() {
+            native_classifier(&classifier, false)?;
+        }
+    }
+    Ok(())
 }
 
 // Snapshot at fit time, retaining PySpark's reference semantics for a classifier

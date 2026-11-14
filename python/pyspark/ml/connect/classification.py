@@ -24,6 +24,7 @@ from pyspark._pyspark import (
     NaiveBayes,
     NaiveBayesModel,
     OneVsRest,
+    OneVsRestModel,
     RandomForestClassifier,
 )
 
@@ -37,6 +38,7 @@ __all__ = [
     "MultilayerPerceptronClassificationTrainingSummary",
     "MultilayerPerceptronClassifier",
     "OneVsRest",
+    "OneVsRestModel",
     "NaiveBayes",
     "NaiveBayesModel",
     "GBTClassifier",

@@ -60,6 +60,7 @@ FULL = [
         ("classification", "NaiveBayes"),
         ("classification", "NaiveBayesModel"),
         ("classification", "OneVsRest"),
+        ("classification", "OneVsRestModel"),
         ("clustering", "KMeans"),
         ("clustering", "KMeansModel"),
         ("clustering", "KMeansSummary"),
