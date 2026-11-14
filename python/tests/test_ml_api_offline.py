@@ -43,9 +43,19 @@ FULL = [
         ("classification", "LinearSVCModel"),
         ("classification", "LinearSVCSummary"),
         ("classification", "LinearSVCTrainingSummary"),
+        ("clustering", "BisectingKMeans"),
+        ("clustering", "BisectingKMeansModel"),
+        ("clustering", "BisectingKMeansSummary"),
+        ("clustering", "DistributedLDAModel"),
+        ("clustering", "GaussianMixture"),
+        ("clustering", "GaussianMixtureModel"),
+        ("clustering", "GaussianMixtureSummary"),
         ("clustering", "KMeans"),
         ("clustering", "KMeansModel"),
         ("clustering", "KMeansSummary"),
+        ("clustering", "LDA"),
+        ("clustering", "LocalLDAModel"),
+        ("clustering", "PowerIterationClustering"),
     ]
 ]
 

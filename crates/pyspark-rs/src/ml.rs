@@ -4694,8 +4694,49 @@ const LDA_PARAMS: &[(&str, Kind)] = &[
     ("keepLastCheckpoint", Kind::Bool),
 ];
 
-#[pymethods]
-impl PyLDA {
+native_pymethods! {
+    PyLDA;
+    jvm: "org.apache.spark.ml.clustering.LDA", op: Estimator;
+    params: [
+        "checkpointInterval" => (
+            "getCheckpointInterval",
+            get_checkpoint_interval,
+            param_checkpoint_interval
+        ),
+        "docConcentration" => (
+            "getDocConcentration",
+            get_doc_concentration,
+            param_doc_concentration
+        ),
+        "featuresCol" => ("getFeaturesCol", get_features_col, param_features_col),
+        "k" => ("getK", get_k, param_k),
+        "keepLastCheckpoint" => (
+            "getKeepLastCheckpoint",
+            get_keep_last_checkpoint,
+            param_keep_last_checkpoint
+        ),
+        "learningDecay" => ("getLearningDecay", get_learning_decay, param_learning_decay),
+        "learningOffset" => ("getLearningOffset", get_learning_offset, param_learning_offset),
+        "maxIter" => ("getMaxIter", get_max_iter, param_max_iter),
+        "optimizeDocConcentration" => (
+            "getOptimizeDocConcentration",
+            get_optimize_doc_concentration,
+            param_optimize_doc_concentration
+        ),
+        "optimizer" => ("getOptimizer", get_optimizer, param_optimizer),
+        "seed" => ("getSeed", get_seed, param_seed),
+        "subsamplingRate" => ("getSubsamplingRate", get_subsampling_rate, param_subsampling_rate),
+        "topicConcentration" => (
+            "getTopicConcentration",
+            get_topic_concentration,
+            param_topic_concentration
+        ),
+        "topicDistributionCol" => (
+            "getTopicDistributionCol",
+            get_topic_distribution_col,
+            param_topic_distribution_col
+        ),
+    ];
     #[new]
     #[pyo3(signature = (*args, **kwargs), text_signature = "(*, featuresCol='features', maxIter=20, seed=None, checkpointInterval=10, k=10, optimizer='online', learningOffset=1024.0, learningDecay=0.51, subsamplingRate=0.05, optimizeDocConcentration=True, docConcentration=None, topicConcentration=None, topicDistributionCol='topicDistribution', keepLastCheckpoint=True)")]
     fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
@@ -4829,17 +4870,70 @@ impl PyLDA {
         set_param(slf, "keepLastCheckpoint", Kind::Bool, value)
     }
 
+    /// The model of a fit, as PySpark's `LDA._create_model`: a DistributedLDAModel of the optimizer
+    /// "em", else a LocalLDAModel. Neither has a training summary.
     #[pyo3(signature = (dataset, params=None))]
     fn fit(
         slf: &Bound<'_, Self>,
         dataset: &Bound<'_, PyAny>,
         params: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Fitted<PyMLModel>> {
-        fit_with(slf, dataset, params, || fit_native(slf, dataset, None))
+    ) -> PyResult<Fitted<Py<PyAny>>> {
+        fit_with(slf, dataset, params, || {
+            let py = slf.py();
+            if slf.try_borrow()?.inner.optimizer() == "em" {
+                let model = fit_native_model(slf, dataset, |py, model, df| {
+                    clustering_api::PyDistributedLDAModel::fitted(
+                        py,
+                        model,
+                        df,
+                        object::SummaryDataset::None,
+                    )
+                })?;
+                return Ok(Py::new(py, model)?.into_any());
+            }
+            let model = fit_native_model(slf, dataset, |py, model, df| {
+                clustering_api::PyLocalLDAModel::fitted(py, model, df, object::SummaryDataset::None)
+            })?;
+            Ok(Py::new(py, model)?.into_any())
+        })
+    }
+
+    /// The fits of a copy of the estimator, one per param map, as `Estimator.fitMultiple`, of
+    /// PySpark's keywords.
+    #[pyo3(name = "fitMultiple")]
+    #[allow(non_snake_case)]
+    fn fit_multiple<'py>(
+        slf: &Bound<'py, Self>,
+        dataset: &Bound<'py, PyAny>,
+        paramMaps: &Bound<'py, PyAny>,
+    ) -> PyResult<params_api::PyFitMultipleIterator> {
+        params_api::fit_multiple(slf.as_any(), dataset, paramMaps)
     }
 }
 
-/// Native PowerIterationClustering backed by Spark Connect's JVM ML API.
+impl params_api::NativeInstance for PyLDA {
+    fn duplicate(&self, py: Python<'_>) -> PyResult<Py<Self>> {
+        Py::new(
+            py,
+            Self {
+                inner: self.inner.clone(),
+                unsendable: self.unsendable.clone(),
+            },
+        )
+    }
+
+    fn uid(&self) -> String {
+        Estimator::operator(&self.inner).uid.clone()
+    }
+
+    fn set_uid(&mut self, uid: &str) {
+        Estimator::operator_mut(&mut self.inner).uid = uid.to_string();
+    }
+}
+
+/// Native PowerIterationClustering backed by Spark Connect's JVM ML API. It is not an estimator:
+/// `assignClusters` runs the algorithm, and it saves as PySpark's
+/// `PowerIterationClusteringWrapper` transformer, of its uid.
 #[pyclass(
     name = "PowerIterationClustering",
     module = "pyspark.ml.connect.clustering"
@@ -4847,6 +4941,7 @@ impl PyLDA {
 pub struct PyPowerIterationClustering {
     inner: PowerIterationClustering,
     unsendable: Vec<&'static str>,
+    uid: String,
 }
 
 const POWER_ITERATION_CLUSTERING_PARAMS: &[(&str, Kind)] = &[
@@ -4858,14 +4953,28 @@ const POWER_ITERATION_CLUSTERING_PARAMS: &[(&str, Kind)] = &[
     ("weightCol", Kind::Str),
 ];
 
-#[pymethods]
-impl PyPowerIterationClustering {
+native_pymethods! {
+    PyPowerIterationClustering;
+    jvm: "org.apache.spark.ml.clustering.PowerIterationClusteringWrapper", op: Transformer;
+    params: [
+        "dstCol" => ("getDstCol", get_dst_col, param_dst_col),
+        "initMode" => ("getInitMode", get_init_mode, param_init_mode),
+        "k" => ("getK", get_k, param_k),
+        "maxIter" => ("getMaxIter", get_max_iter, param_max_iter),
+        "srcCol" => ("getSrcCol", get_src_col, param_src_col),
+        "weightCol" => ("getWeightCol", get_weight_col, param_weight_col),
+    ];
     #[new]
     #[pyo3(signature = (*args, **kwargs), text_signature = "(*, k=2, maxIter=20, initMode='random', srcCol='src', dstCol='dst', weightCol=None)")]
     fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
         let mut this = Self {
             inner: PowerIterationClustering::new(),
             unsendable: Vec::new(),
+            uid: spark_connect::ml::MlOperator::new(
+                "org.apache.spark.ml.clustering.PowerIterationClustering",
+                spark_connect::ml::OperatorType::Transformer,
+            )
+            .uid,
         };
         init_params(
             &mut this,
@@ -4950,6 +5059,27 @@ impl PyPowerIterationClustering {
     }
 }
 
+impl params_api::NativeInstance for PyPowerIterationClustering {
+    fn duplicate(&self, py: Python<'_>) -> PyResult<Py<Self>> {
+        Py::new(
+            py,
+            Self {
+                inner: self.inner.clone(),
+                unsendable: self.unsendable.clone(),
+                uid: self.uid.clone(),
+            },
+        )
+    }
+
+    fn uid(&self) -> String {
+        self.uid.clone()
+    }
+
+    fn set_uid(&mut self, uid: &str) {
+        self.uid = uid.to_string();
+    }
+}
+
 /// Gaussian mixture estimator fitted and cached by Spark Connect.
 #[pyclass(name = "GaussianMixture", module = "pyspark.ml.connect.clustering")]
 pub struct PyGaussianMixture {
@@ -4969,8 +5099,24 @@ const GAUSSIAN_MIXTURE_PARAMS: &[(&str, Kind)] = &[
     ("weightCol", Kind::Str),
 ];
 
-#[pymethods]
-impl PyGaussianMixture {
+native_pymethods! {
+    PyGaussianMixture;
+    jvm: "org.apache.spark.ml.clustering.GaussianMixture", op: Estimator;
+    params: [
+        "aggregationDepth" => (
+            "getAggregationDepth",
+            get_aggregation_depth,
+            param_aggregation_depth
+        ),
+        "featuresCol" => ("getFeaturesCol", get_features_col, param_features_col),
+        "k" => ("getK", get_k, param_k),
+        "maxIter" => ("getMaxIter", get_max_iter, param_max_iter),
+        "predictionCol" => ("getPredictionCol", get_prediction_col, param_prediction_col),
+        "probabilityCol" => ("getProbabilityCol", get_probability_col, param_probability_col),
+        "seed" => ("getSeed", get_seed, param_seed),
+        "tol" => ("getTol", get_tol, param_tol),
+        "weightCol" => ("getWeightCol", get_weight_col, param_weight_col),
+    ];
     #[new]
     #[pyo3(signature = (*args, **kwargs), text_signature = "(*, featuresCol='features', predictionCol='prediction', k=2, probabilityCol='probability', tol=0.01, maxIter=100, seed=None, aggregationDepth=2, weightCol=None)")]
     fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
@@ -5081,8 +5227,49 @@ impl PyGaussianMixture {
         slf: &Bound<'_, Self>,
         dataset: &Bound<'_, PyAny>,
         params: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Fitted<PyMLModel>> {
-        fit_with(slf, dataset, params, || fit_native(slf, dataset, None))
+    ) -> PyResult<Fitted<clustering_api::PyGaussianMixtureModel>> {
+        fit_with(slf, dataset, params, || {
+            fit_native_model(slf, dataset, |py, model, df| {
+                clustering_api::PyGaussianMixtureModel::fitted(
+                    py,
+                    model,
+                    df,
+                    object::SummaryDataset::Transformed,
+                )
+            })
+        })
+    }
+
+    /// The fits of a copy of the estimator, one per param map, as `Estimator.fitMultiple`, of
+    /// PySpark's keywords.
+    #[pyo3(name = "fitMultiple")]
+    #[allow(non_snake_case)]
+    fn fit_multiple<'py>(
+        slf: &Bound<'py, Self>,
+        dataset: &Bound<'py, PyAny>,
+        paramMaps: &Bound<'py, PyAny>,
+    ) -> PyResult<params_api::PyFitMultipleIterator> {
+        params_api::fit_multiple(slf.as_any(), dataset, paramMaps)
+    }
+}
+
+impl params_api::NativeInstance for PyGaussianMixture {
+    fn duplicate(&self, py: Python<'_>) -> PyResult<Py<Self>> {
+        Py::new(
+            py,
+            Self {
+                inner: self.inner.clone(),
+                unsendable: self.unsendable.clone(),
+            },
+        )
+    }
+
+    fn uid(&self) -> String {
+        Estimator::operator(&self.inner).uid.clone()
+    }
+
+    fn set_uid(&mut self, uid: &str) {
+        Estimator::operator_mut(&mut self.inner).uid = uid.to_string();
     }
 }
 
@@ -5104,8 +5291,23 @@ const BISECTING_KMEANS_PARAMS: &[(&str, Kind)] = &[
     ("weightCol", Kind::Str),
 ];
 
-#[pymethods]
-impl PyBisectingKMeans {
+native_pymethods! {
+    PyBisectingKMeans;
+    jvm: "org.apache.spark.ml.clustering.BisectingKMeans", op: Estimator;
+    params: [
+        "distanceMeasure" => ("getDistanceMeasure", get_distance_measure, param_distance_measure),
+        "featuresCol" => ("getFeaturesCol", get_features_col, param_features_col),
+        "k" => ("getK", get_k, param_k),
+        "maxIter" => ("getMaxIter", get_max_iter, param_max_iter),
+        "minDivisibleClusterSize" => (
+            "getMinDivisibleClusterSize",
+            get_min_divisible_cluster_size,
+            param_min_divisible_cluster_size
+        ),
+        "predictionCol" => ("getPredictionCol", get_prediction_col, param_prediction_col),
+        "seed" => ("getSeed", get_seed, param_seed),
+        "weightCol" => ("getWeightCol", get_weight_col, param_weight_col),
+    ];
     #[new]
     #[pyo3(signature = (*args, **kwargs), text_signature = "(*, featuresCol='features', predictionCol='prediction', maxIter=20, seed=None, k=4, minDivisibleClusterSize=1.0, distanceMeasure='euclidean', weightCol=None)")]
     fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
@@ -5208,8 +5410,49 @@ impl PyBisectingKMeans {
         slf: &Bound<'_, Self>,
         dataset: &Bound<'_, PyAny>,
         params: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Fitted<PyMLModel>> {
-        fit_with(slf, dataset, params, || fit_native(slf, dataset, None))
+    ) -> PyResult<Fitted<clustering_api::PyBisectingKMeansModel>> {
+        fit_with(slf, dataset, params, || {
+            fit_native_model(slf, dataset, |py, model, df| {
+                clustering_api::PyBisectingKMeansModel::fitted(
+                    py,
+                    model,
+                    df,
+                    object::SummaryDataset::Transformed,
+                )
+            })
+        })
+    }
+
+    /// The fits of a copy of the estimator, one per param map, as `Estimator.fitMultiple`, of
+    /// PySpark's keywords.
+    #[pyo3(name = "fitMultiple")]
+    #[allow(non_snake_case)]
+    fn fit_multiple<'py>(
+        slf: &Bound<'py, Self>,
+        dataset: &Bound<'py, PyAny>,
+        paramMaps: &Bound<'py, PyAny>,
+    ) -> PyResult<params_api::PyFitMultipleIterator> {
+        params_api::fit_multiple(slf.as_any(), dataset, paramMaps)
+    }
+}
+
+impl params_api::NativeInstance for PyBisectingKMeans {
+    fn duplicate(&self, py: Python<'_>) -> PyResult<Py<Self>> {
+        Py::new(
+            py,
+            Self {
+                inner: self.inner.clone(),
+                unsendable: self.unsendable.clone(),
+            },
+        )
+    }
+
+    fn uid(&self) -> String {
+        Estimator::operator(&self.inner).uid.clone()
+    }
+
+    fn set_uid(&mut self, uid: &str) {
+        Estimator::operator_mut(&mut self.inner).uid = uid.to_string();
     }
 }
 
