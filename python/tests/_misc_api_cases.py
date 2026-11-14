@@ -292,7 +292,9 @@ def _mlp_live(rec, spark, base):
     rec("transform_map", lambda: model.transform(df, {model.predictionCol: "q"}).columns)
     rec("copy_maxIter", lambda: model.copy({model.maxIter: 9}).getMaxIter())
     rec("model_setThresholds", lambda: model.copy().setThresholds([0.5, 0.5]).getThresholds())
-    _persistence_cases(rec, est, model, model_class, df, base, SPECS["MultilayerPerceptronClassifier"], True)
+    _persistence_cases(
+        rec, est, model, model_class, df, base, SPECS["MultilayerPerceptronClassifier"], True
+    )
 
 
 def _fm_live(rec, spark, base):
