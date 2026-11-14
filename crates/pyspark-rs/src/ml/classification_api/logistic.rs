@@ -180,6 +180,7 @@ native_model! {
         ),
         "weightCol" => ("getWeightCol", get_weight_col, param_weight_col),
     ];
+    params_only: ["threshold" => param_threshold, "thresholds" => param_thresholds];
     setters: [
         "setFeaturesCol" => (set_features_col, "featuresCol"),
         "setPredictionCol" => (set_prediction_col, "predictionCol"),
@@ -218,20 +219,6 @@ native_model! {
         thresholds_of(slf)
     }
 
-    /// The Param `threshold` of the class, as its attribute.
-    #[getter]
-    #[pyo3(name = "threshold")]
-    fn param_threshold<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
-        params_api::param(slf.as_any(), "threshold")
-    }
-
-    /// The Param `thresholds` of the class, as its attribute.
-    #[getter]
-    #[pyo3(name = "thresholds")]
-    fn param_thresholds<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
-        params_api::param(slf.as_any(), "thresholds")
-    }
-
     /// The training summary of the fit, as `HasTrainingSummary.summary` over Spark Connect: the
     /// same object on every call, of a model that this client fitted, else PySpark's RuntimeError.
     #[getter]
@@ -260,7 +247,7 @@ native_model! {
         }
         let target = slf.try_borrow()?.core.target()?;
         let output = object::fetch_py(py, &target, "evaluate", std::slice::from_ref(dataset))?;
-        let summary = spark_connect::ml::evaluated_summary(target.session(), output).to_pyerr()?;
+        let summary = spark_connect::ml::evaluated_summary(&target, output).to_pyerr()?;
         evaluated_summary_of(py, &target, summary)
     }
 }

@@ -1083,18 +1083,19 @@ native_pymethods! {
         classification_api::thresholds_of(slf)
     }
 
-    /// The Param `threshold` of the class, as its attribute.
-    #[getter]
+    /// The Param attribute `threshold` of the class, as `params_only` of the macros makes it (the
+    /// class's Param, and of an instance, its Param of the uid).
+    #[classattr]
     #[pyo3(name = "threshold")]
-    fn param_threshold<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
-        params_api::param(slf.as_any(), "threshold")
+    fn param_threshold() -> params_api::PyParamAttribute {
+        params_api::PyParamAttribute::new("threshold")
     }
 
-    /// The Param `thresholds` of the class, as its attribute.
-    #[getter]
+    /// The Param attribute `thresholds` of the class (see `threshold`).
+    #[classattr]
     #[pyo3(name = "thresholds")]
-    fn param_thresholds<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
-        params_api::param(slf.as_any(), "thresholds")
+    fn param_thresholds() -> params_api::PyParamAttribute {
+        params_api::PyParamAttribute::new("thresholds")
     }
 
     /// Fit `dataset`, a Spark DataFrame, as PySpark's `pyspark.ml` fits it (see [`fit_native`]):
