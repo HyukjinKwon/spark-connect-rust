@@ -2,6 +2,7 @@
 
 from pyspark._pyspark import (
     AFTSurvivalRegression,
+    DecisionTreeRegressionModel,
     DecisionTreeRegressor,
     FMRegressor,
     GBTRegressor,
@@ -14,6 +15,7 @@ from pyspark._pyspark import (
 __all__ = [
     "GBTRegressor",
     "DecisionTreeRegressor",
+    "DecisionTreeRegressionModel",
     "AFTSurvivalRegression",
     "IsotonicRegression",
     "FMRegressor",
