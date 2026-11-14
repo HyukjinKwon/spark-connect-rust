@@ -5,8 +5,8 @@
 //!
 //! A random forest's and a gradient-boosted model's trees are server-side objects of their own
 //! ([`TreeEnsembleModel::tree_of`]). A fit of a random forest sets its training summary to the
-//! `<model>.summary` object, with the transform of the training dataset, from which the server
-//! recreates the summary when it has lost it.
+//! `<model>.summary` object, with the training dataset itself (as PySpark's `_summary_dataset`
+//! returns it), from which the server recreates the summary when it has lost it.
 
 #[cfg(test)]
 mod golden_tests;
