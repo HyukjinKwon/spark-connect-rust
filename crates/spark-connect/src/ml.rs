@@ -80,8 +80,6 @@ macro_rules! ml_params {
 
 /// The default `seed` of a class when the client sends none: Java's `String.hashCode` of the JVM
 /// class name, which the server takes as `getClass.getName.hashCode`, sign-extended to `Long`.
-// Read by the seed getters of the rows that scripts/gen_rust_params_table.py prints.
-#[allow(dead_code)]
 fn java_string_hash(class_name: &str) -> i64 {
     let mut hash: i32 = 0;
     for unit in class_name.encode_utf16() {
@@ -740,7 +738,7 @@ impl Params {
 }
 
 // The optional getters below are read by the rows that scripts/gen_rust_params_table.py prints
-// for each converted class. The attribute goes once the first of those rows is converted.
+// for each converted class. Some have no row of the classes converted so far, so the allow stays.
 #[allow(dead_code)]
 impl Params {
     /// The integer parameter `name`, if it is set, as the server reads it into a JVM `Int`.
@@ -1280,39 +1278,6 @@ impl StandardScaler {
         }
     }
 
-    /// Set the input column name.
-    pub fn set_input_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("inputCol", col);
-        self
-    }
-
-    /// The input column, if set: as in Spark, it has no default.
-    pub fn input_col(&self) -> Option<&str> {
-        self.params.string_opt("inputCol")
-    }
-
-    /// Set the output column name.
-    pub fn set_output_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("outputCol", col);
-        self
-    }
-
-    /// The output column: as in Spark, `<uid>__output` unless set.
-    pub fn output_col(&self) -> String {
-        self.params.output_col_or_default(&self.operator.uid)
-    }
-
-    /// Whether to center the features to mean 0 before scaling (default: false, as in Spark).
-    pub fn set_with_mean(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("withMean", value);
-        self
-    }
-
-    /// Whether the features are centered to mean 0 before scaling (default: false).
-    pub fn with_mean(&self) -> bool {
-        self.params.bool_or("withMean", false)
-    }
-
     fn model_from_info(
         &self,
         info: proto::ml_command_result::MlOperatorInfo,
@@ -1328,6 +1293,19 @@ impl StandardScaler {
             params: self.params.clone(),
             cached,
         })
+    }
+}
+
+ml_params! {
+    StandardScaler {
+        set_input_col(value: &str) => "inputCol", set_param_string;
+        input_col -> Option<&str> = |this| this.params.string_opt("inputCol");
+        set_output_col(value: &str) => "outputCol", set_param_string;
+        output_col -> String = |this| this.params.output_col_or_default(&this.operator.uid);
+        set_with_mean(value: bool) => "withMean", set_param_bool;
+        with_mean -> bool = |this| this.params.bool_or("withMean", false);
+        set_with_std(value: bool) => "withStd", set_param_bool;
+        with_std -> bool = |this| this.params.bool_or("withStd", true);
     }
 }
 
@@ -1409,6 +1387,17 @@ impl Model for StandardScalerModel {
     }
 }
 
+ml_params! {
+    StandardScalerModel {
+        set_input_col(value: &str) => "inputCol", set_param_string;
+        input_col -> Option<&str> = |this| this.params.string_opt("inputCol");
+        set_output_col(value: &str) => "outputCol", set_param_string;
+        output_col -> String = |this| this.params.output_col_or_default(&this.operator.uid);
+        with_mean -> bool = |this| this.params.bool_or("withMean", false) => "withMean";
+        with_std -> bool = |this| this.params.bool_or("withStd", true) => "withStd";
+    }
+}
+
 /// VectorAssembler Transformer: combines multiple columns into a single vector column.
 #[derive(Debug, Clone)]
 pub struct VectorAssembler {
@@ -1426,25 +1415,17 @@ impl VectorAssembler {
             params: Params::new(),
         }
     }
+}
 
-    pub fn set_input_cols(mut self, cols: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.params = self.params.set_param_string_array("inputCols", cols);
-        self
-    }
-
-    /// The input columns (default: none).
-    pub fn input_cols(&self) -> Vec<String> {
-        self.params.string_array("inputCols")
-    }
-
-    pub fn set_output_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("outputCol", col);
-        self
-    }
-
-    /// The output column: as in Spark, `<uid>__output` unless set.
-    pub fn output_col(&self) -> String {
-        self.params.output_col_or_default(&self.operator.uid)
+ml_params! {
+    VectorAssembler {
+        set_handle_invalid(value: &str) => "handleInvalid", set_param_string;
+        handle_invalid -> &str = |this| this.params.string_or("handleInvalid", "error");
+        set_input_cols(value: impl IntoIterator<Item = impl Into<String>>) =>
+            "inputCols", set_param_string_array;
+        input_cols -> Vec<String> = |this| this.params.string_array("inputCols");
+        set_output_col(value: &str) => "outputCol", set_param_string;
+        output_col -> String = |this| this.params.output_col_or_default(&this.operator.uid);
     }
 }
 
@@ -1503,26 +1484,6 @@ impl StringIndexer {
         }
     }
 
-    pub fn set_input_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("inputCol", col);
-        self
-    }
-
-    /// The input column, if set: as in Spark, it has no default.
-    pub fn input_col(&self) -> Option<&str> {
-        self.params.string_opt("inputCol")
-    }
-
-    pub fn set_output_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("outputCol", col);
-        self
-    }
-
-    /// The output column: as in Spark, `<uid>__output` unless set.
-    pub fn output_col(&self) -> String {
-        self.params.output_col_or_default(&self.operator.uid)
-    }
-
     fn model_from_info(
         &self,
         info: proto::ml_command_result::MlOperatorInfo,
@@ -1538,6 +1499,26 @@ impl StringIndexer {
             params: self.params.clone(),
             cached,
         })
+    }
+}
+
+ml_params! {
+    StringIndexer {
+        set_handle_invalid(value: &str) => "handleInvalid", set_param_string;
+        handle_invalid -> &str = |this| this.params.string_or("handleInvalid", "error");
+        set_input_col(value: &str) => "inputCol", set_param_string;
+        input_col -> Option<&str> = |this| this.params.string_opt("inputCol");
+        set_input_cols(value: impl IntoIterator<Item = impl Into<String>>) =>
+            "inputCols", set_param_string_array;
+        input_cols -> Vec<String> = |this| this.params.string_array("inputCols");
+        set_output_col(value: &str) => "outputCol", set_param_string;
+        output_col -> String = |this| this.params.output_col_or_default(&this.operator.uid);
+        set_output_cols(value: impl IntoIterator<Item = impl Into<String>>) =>
+            "outputCols", set_param_string_array;
+        output_cols -> Vec<String> = |this| this.params.string_array("outputCols");
+        set_string_order_type(value: &str) => "stringOrderType", set_param_string;
+        string_order_type -> &str =
+            |this| this.params.string_or("stringOrderType", "frequencyDesc");
     }
 }
 
@@ -1619,6 +1600,25 @@ impl Model for StringIndexerModel {
     }
 }
 
+ml_params! {
+    StringIndexerModel {
+        set_handle_invalid(value: &str) => "handleInvalid", set_param_string;
+        handle_invalid -> &str = |this| this.params.string_or("handleInvalid", "error");
+        set_input_col(value: &str) => "inputCol", set_param_string;
+        input_col -> Option<&str> = |this| this.params.string_opt("inputCol");
+        set_input_cols(value: impl IntoIterator<Item = impl Into<String>>) =>
+            "inputCols", set_param_string_array;
+        input_cols -> Option<Vec<String>> = |this| this.params.string_array_opt("inputCols");
+        set_output_col(value: &str) => "outputCol", set_param_string;
+        output_col -> String = |this| this.params.output_col_or_default(&this.operator.uid);
+        set_output_cols(value: impl IntoIterator<Item = impl Into<String>>) =>
+            "outputCols", set_param_string_array;
+        output_cols -> Option<Vec<String>> = |this| this.params.string_array_opt("outputCols");
+        string_order_type -> &str =
+            |this| this.params.string_or("stringOrderType", "frequencyDesc") => "stringOrderType";
+    }
+}
+
 /// MaxAbsScaler Estimator: rescales each feature to range [-1, 1].
 #[derive(Debug, Clone)]
 pub struct MaxAbsScaler {
@@ -1637,26 +1637,6 @@ impl MaxAbsScaler {
         }
     }
 
-    pub fn set_input_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("inputCol", col);
-        self
-    }
-
-    /// The input column, if set: as in Spark, it has no default.
-    pub fn input_col(&self) -> Option<&str> {
-        self.params.string_opt("inputCol")
-    }
-
-    pub fn set_output_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("outputCol", col);
-        self
-    }
-
-    /// The output column: as in Spark, `<uid>__output` unless set.
-    pub fn output_col(&self) -> String {
-        self.params.output_col_or_default(&self.operator.uid)
-    }
-
     fn model_from_info(
         &self,
         info: proto::ml_command_result::MlOperatorInfo,
@@ -1672,6 +1652,15 @@ impl MaxAbsScaler {
             params: self.params.clone(),
             cached,
         })
+    }
+}
+
+ml_params! {
+    MaxAbsScaler {
+        set_input_col(value: &str) => "inputCol", set_param_string;
+        input_col -> Option<&str> = |this| this.params.string_opt("inputCol");
+        set_output_col(value: &str) => "outputCol", set_param_string;
+        output_col -> String = |this| this.params.output_col_or_default(&this.operator.uid);
     }
 }
 
@@ -1750,6 +1739,15 @@ impl Model for MaxAbsScalerModel {
 
     fn clone_box(&self) -> Box<dyn Model> {
         Box::new(self.clone())
+    }
+}
+
+ml_params! {
+    MaxAbsScalerModel {
+        set_input_col(value: &str) => "inputCol", set_param_string;
+        input_col -> Option<&str> = |this| this.params.string_opt("inputCol");
+        set_output_col(value: &str) => "outputCol", set_param_string;
+        output_col -> String = |this| this.params.output_col_or_default(&this.operator.uid);
     }
 }
 
@@ -1915,47 +1913,6 @@ impl LogisticRegression {
         }
     }
 
-    pub fn set_feature_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", col);
-        self
-    }
-
-    pub fn set_label_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", col);
-        self
-    }
-
-    pub fn set_prediction_col(mut self, col: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", col);
-        self
-    }
-
-    /// Maximum number of optimizer iterations.
-    pub fn set_max_iter(mut self, max_iter: i32) -> Self {
-        self.params = self.params.set_param_int32("maxIter", max_iter);
-        self
-    }
-
-    /// The feature vector column (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The label column (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The prediction output column (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// The maximum number of optimizer iterations (default: 100).
-    pub fn max_iter(&self) -> i32 {
-        self.params.int_or("maxIter", 100)
-    }
-
     fn model_from_info(
         &self,
         info: proto::ml_command_result::MlOperatorInfo,
@@ -1970,6 +1927,7 @@ impl LogisticRegression {
             ),
             params: self.params.clone(),
             cached,
+            summary: None,
         })
     }
 }
@@ -1998,8 +1956,7 @@ impl Estimator for LogisticRegression {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -2014,24 +1971,12 @@ pub struct LogisticRegressionModel {
     operator: MlOperator,
     params: Params,
     cached: CachedModel,
+    /// The target of the training summary, which a fit sets (`_summary`); None of a model that the
+    /// server returns without a fit, such as a loaded one.
+    summary: Option<MlTarget>,
 }
 
-impl LogisticRegressionModel {
-    /// The feature vector column of the estimator that fitted the model (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The label column of the estimator that fitted the model (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The prediction output column of the model (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-}
+impl LogisticRegressionModel {}
 
 impl Transformer for LogisticRegressionModel {
     fn operator(&self) -> &MlOperator {
@@ -2094,149 +2039,6 @@ impl LinearSVC {
         }
     }
 
-    /// Feature vector column.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Binary label column (0 or 1).
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Prediction output column.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Raw margin output column.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Maximum number of optimizer iterations.
-    pub fn set_max_iter(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxIter", value);
-        self
-    }
-
-    /// L2 regularization strength.
-    pub fn set_reg_param(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("regParam", value);
-        self
-    }
-
-    /// Convergence tolerance.
-    pub fn set_tol(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("tol", value);
-        self
-    }
-
-    /// Whether to fit an intercept.
-    pub fn set_fit_intercept(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("fitIntercept", value);
-        self
-    }
-
-    /// Whether to standardize training features.
-    pub fn set_standardization(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("standardization", value);
-        self
-    }
-
-    /// Decision threshold applied to the model margin.
-    pub fn set_threshold(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("threshold", value);
-        self
-    }
-
-    /// Optional instance weight column.
-    pub fn set_weight_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("weightCol", value);
-        self
-    }
-
-    /// Tree aggregation depth.
-    pub fn set_aggregation_depth(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("aggregationDepth", value);
-        self
-    }
-
-    /// Maximum size in MB of stacked input blocks.
-    pub fn set_max_block_size_in_mb(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("maxBlockSizeInMB", value);
-        self
-    }
-
-    /// The feature vector column (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The label column (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The prediction output column (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// The raw margin output column (default: "rawPrediction").
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// The maximum number of optimizer iterations (default: 100).
-    pub fn max_iter(&self) -> i32 {
-        self.params.int_or("maxIter", 100)
-    }
-
-    /// The L2 regularization strength (default: 0).
-    pub fn reg_param(&self) -> f64 {
-        self.params.double_or("regParam", 0.0)
-    }
-
-    /// The convergence tolerance (default: 1e-6).
-    pub fn tol(&self) -> f64 {
-        self.params.double_or("tol", 1e-6)
-    }
-
-    /// Whether to fit an intercept (default: true).
-    pub fn fit_intercept(&self) -> bool {
-        self.params.bool_or("fitIntercept", true)
-    }
-
-    /// Whether to standardize training features (default: true).
-    pub fn standardization(&self) -> bool {
-        self.params.bool_or("standardization", true)
-    }
-
-    /// The decision threshold applied to the model margin (default: 0).
-    pub fn threshold(&self) -> f64 {
-        self.params.double_or("threshold", 0.0)
-    }
-
-    /// The instance weight column, if one is set.
-    pub fn weight_col(&self) -> Option<&str> {
-        self.params.string_opt("weightCol")
-    }
-
-    /// The tree aggregation depth (default: 2).
-    pub fn aggregation_depth(&self) -> i32 {
-        self.params.int_or("aggregationDepth", 2)
-    }
-
-    /// The maximum size in MB of stacked input blocks (default: 0, chosen by Spark).
-    pub fn max_block_size_in_mb(&self) -> f64 {
-        self.params.double_or("maxBlockSizeInMB", 0.0)
-    }
-
     fn model_from_info(
         &self,
         info: proto::ml_command_result::MlOperatorInfo,
@@ -2251,6 +2053,7 @@ impl LinearSVC {
             ),
             params: self.params.clone(),
             cached,
+            summary: None,
         })
     }
 }
@@ -2276,8 +2079,7 @@ impl Estimator for LinearSVC {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -2289,6 +2091,9 @@ pub struct LinearSVCModel {
     operator: MlOperator,
     params: Params,
     cached: CachedModel,
+    /// The target of the training summary, which a fit sets (`_summary`); None of a model that the
+    /// server returns without a fit, such as a loaded one.
+    summary: Option<MlTarget>,
 }
 
 impl Transformer for LinearSVCModel {
@@ -2346,191 +2151,19 @@ impl FMClassifier {
         }
     }
 
-    /// Set `featuresCol`.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Get `featuresCol` (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// Set `labelCol`.
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Get `labelCol` (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// Set `predictionCol`.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Get `predictionCol` (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// Set `probabilityCol`.
-    pub fn set_probability_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("probabilityCol", value);
-        self
-    }
-
-    /// Get `probabilityCol` (default: "probability").
-    pub fn probability_col(&self) -> &str {
-        self.params.string_or("probabilityCol", "probability")
-    }
-
-    /// Set `rawPredictionCol`.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Get `rawPredictionCol` (default: "rawPrediction").
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// Set `factorSize`.
-    pub fn set_factor_size(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("factorSize", value);
-        self
-    }
-
-    /// Get `factorSize` (default: 8).
-    pub fn factor_size(&self) -> i32 {
-        self.params.int_or("factorSize", 8)
-    }
-
-    /// Set `fitIntercept`.
-    pub fn set_fit_intercept(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("fitIntercept", value);
-        self
-    }
-
-    /// Get `fitIntercept` (default: true).
-    pub fn fit_intercept(&self) -> bool {
-        self.params.bool_or("fitIntercept", true)
-    }
-
-    /// Set `fitLinear`.
-    pub fn set_fit_linear(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("fitLinear", value);
-        self
-    }
-
-    /// Get `fitLinear` (default: true).
-    pub fn fit_linear(&self) -> bool {
-        self.params.bool_or("fitLinear", true)
-    }
-
-    /// Set `regParam`.
-    pub fn set_reg_param(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("regParam", value);
-        self
-    }
-
-    /// Get `regParam` (default: 0.0).
-    pub fn reg_param(&self) -> f64 {
-        self.params.double_or("regParam", 0.0)
-    }
-
-    /// Set `miniBatchFraction`.
-    pub fn set_mini_batch_fraction(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("miniBatchFraction", value);
-        self
-    }
-
-    /// Get `miniBatchFraction` (default: 1.0).
-    pub fn mini_batch_fraction(&self) -> f64 {
-        self.params.double_or("miniBatchFraction", 1.0)
-    }
-
-    /// Set `initStd`.
-    pub fn set_init_std(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("initStd", value);
-        self
-    }
-
-    /// Get `initStd` (default: 0.01).
-    pub fn init_std(&self) -> f64 {
-        self.params.double_or("initStd", 0.01)
-    }
-
-    /// Set `maxIter`.
-    pub fn set_max_iter(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxIter", value);
-        self
-    }
-
-    /// Get `maxIter` (default: 100).
-    pub fn max_iter(&self) -> i32 {
-        self.params.int_or("maxIter", 100)
-    }
-
-    /// Set `stepSize`.
-    pub fn set_step_size(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("stepSize", value);
-        self
-    }
-
-    /// Get `stepSize` (default: 1.0).
-    pub fn step_size(&self) -> f64 {
-        self.params.double_or("stepSize", 1.0)
-    }
-
-    /// Set `tol`.
-    pub fn set_tol(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("tol", value);
-        self
-    }
-
-    /// Get `tol` (default: 1e-06).
-    pub fn tol(&self) -> f64 {
-        self.params.double_or("tol", 1e-06)
-    }
-
-    /// Set `solver`.
-    pub fn set_solver(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("solver", value);
-        self
-    }
-
-    /// Get `solver` (default: "adamW").
-    pub fn solver(&self) -> &str {
-        self.params.string_or("solver", "adamW")
-    }
-
-    /// Set `thresholds`.
-    pub fn set_thresholds(mut self, value: impl IntoIterator<Item = f64>) -> Self {
-        self.params = self.params.set_param_double_array("thresholds", value);
-        self
-    }
-
-    /// Get `thresholds` (unset by default).
-    pub fn thresholds(&self) -> Option<Vec<f64>> {
-        self.params.double_array_opt("thresholds")
-    }
-
-    /// Set `seed`.
-    pub fn set_seed(mut self, value: i64) -> Self {
-        self.params = self.params.set_param_int_narrow("seed", value);
-        self
-    }
-
-    /// Get `seed` (unset by default).
-    pub fn seed(&self) -> Option<i64> {
-        self.params.long_opt("seed")
+    /// Fit the typed FM classification model, whose training summary the model holds.
+    pub fn fit(
+        &mut self,
+        df: &DataFrame,
+    ) -> spark_connect_core::error::Result<FMClassificationModel> {
+        let info = fit_via_command(&self.operator, &self.params, df)?;
+        let mut model = self.model_from_info(info, &df.session)?;
+        model.summary_target = Some(
+            MlTarget::object(&model.cached)
+                .child("summary")
+                .with_summary_dataset(df),
+        );
+        Ok(model)
     }
 
     fn model_from_info(
@@ -2547,6 +2180,7 @@ impl FMClassifier {
             ),
             params: self.params.clone(),
             cached,
+            summary_target: None,
         })
     }
 }
@@ -2572,8 +2206,7 @@ impl Estimator for FMClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -2586,6 +2219,9 @@ pub struct FMClassificationModel {
     operator: MlOperator,
     params: Params,
     cached: CachedModel,
+    /// The target of the training summary, which a fit sets (`hasSummary` of PySpark's
+    /// `HasTrainingSummary`); None of a loaded model.
+    summary_target: Option<MlTarget>,
 }
 
 impl Transformer for FMClassificationModel {
@@ -2643,168 +2279,19 @@ impl MultilayerPerceptronClassifier {
         }
     }
 
-    /// Set `featuresCol`.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Get `featuresCol` (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// Set `labelCol`.
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Get `labelCol` (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// Set `predictionCol`.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Get `predictionCol` (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// Set `maxIter`.
-    pub fn set_max_iter(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxIter", value);
-        self
-    }
-
-    /// Get `maxIter` (default: 100).
-    pub fn max_iter(&self) -> i32 {
-        self.params.int_or("maxIter", 100)
-    }
-
-    /// Set `tol`.
-    pub fn set_tol(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("tol", value);
-        self
-    }
-
-    /// Get `tol` (default: 1e-06).
-    pub fn tol(&self) -> f64 {
-        self.params.double_or("tol", 1e-06)
-    }
-
-    /// Set `seed`.
-    pub fn set_seed(mut self, value: i64) -> Self {
-        self.params = self.params.set_param_int_narrow("seed", value);
-        self
-    }
-
-    /// Get `seed` (unset by default).
-    pub fn seed(&self) -> Option<i64> {
-        self.params.long_opt("seed")
-    }
-
-    /// Set `layers`.
-    pub fn set_layers(mut self, value: impl IntoIterator<Item = i32>) -> Self {
-        self.params = self
-            .params
-            .set_param_int_array("layers", value.into_iter().map(i64::from));
-        self
-    }
-
-    /// Get `layers` (unset by default).
-    pub fn layers(&self) -> Option<Vec<i32>> {
-        self.params
-            .array_opt("layers")?
-            .iter()
-            .map(|lit| match lit.literal_type.as_ref()? {
-                proto::expression::literal::LiteralType::Integer(v) => Some(*v),
-                proto::expression::literal::LiteralType::Long(v) => Some(*v as i32),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Set `blockSize`.
-    pub fn set_block_size(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("blockSize", value);
-        self
-    }
-
-    /// Get `blockSize` (default: 128).
-    pub fn block_size(&self) -> i32 {
-        self.params.int_or("blockSize", 128)
-    }
-
-    /// Set `stepSize`.
-    pub fn set_step_size(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("stepSize", value);
-        self
-    }
-
-    /// Get `stepSize` (default: 0.03).
-    pub fn step_size(&self) -> f64 {
-        self.params.double_or("stepSize", 0.03)
-    }
-
-    /// Set `solver`.
-    pub fn set_solver(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("solver", value);
-        self
-    }
-
-    /// Get `solver` (default: "l-bfgs").
-    pub fn solver(&self) -> &str {
-        self.params.string_or("solver", "l-bfgs")
-    }
-
-    /// Set `initialWeights`.
-    pub fn set_initial_weights(mut self, value: impl Into<MlVector>) -> Self {
-        self.params = self.params.set_param_vector("initialWeights", value);
-        self
-    }
-
-    /// Get `initialWeights` (unset by default).
-    pub fn initial_weights(&self) -> Option<MlVector> {
-        MlVector::from_literal(self.params.literal("initialWeights")?)
-    }
-
-    /// Set `probabilityCol`.
-    pub fn set_probability_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("probabilityCol", value);
-        self
-    }
-
-    /// Get `probabilityCol` (default: "probability").
-    pub fn probability_col(&self) -> &str {
-        self.params.string_or("probabilityCol", "probability")
-    }
-
-    /// Set `rawPredictionCol`.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Get `rawPredictionCol` (default: "rawPrediction").
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// Set `thresholds`.
-    pub fn set_thresholds(mut self, value: impl IntoIterator<Item = f64>) -> Self {
-        self.params = self.params.set_param_double_array("thresholds", value);
-        self
-    }
-
-    /// Get `thresholds` (unset by default).
-    pub fn thresholds(&self) -> Option<Vec<f64>> {
-        self.params.double_array_opt("thresholds")
+    /// Fit the typed MLP classification model, whose training summary the model holds.
+    pub fn fit(
+        &mut self,
+        df: &DataFrame,
+    ) -> spark_connect_core::error::Result<MultilayerPerceptronClassificationModel> {
+        let info = fit_via_command(&self.operator, &self.params, df)?;
+        let mut model = self.model_from_info(info, &df.session)?;
+        model.summary_target = Some(
+            MlTarget::object(&model.cached)
+                .child("summary")
+                .with_summary_dataset(df),
+        );
+        Ok(model)
     }
 
     fn model_from_info(
@@ -2821,6 +2308,7 @@ impl MultilayerPerceptronClassifier {
             ),
             params: self.params.clone(),
             cached,
+            summary_target: None,
         })
     }
 }
@@ -2846,8 +2334,7 @@ impl Estimator for MultilayerPerceptronClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -2860,6 +2347,9 @@ pub struct MultilayerPerceptronClassificationModel {
     operator: MlOperator,
     params: Params,
     cached: CachedModel,
+    /// The target of the training summary, which a fit sets (`hasSummary` of PySpark's
+    /// `HasTrainingSummary`); None of a loaded model.
+    summary_target: Option<MlTarget>,
 }
 
 impl Transformer for MultilayerPerceptronClassificationModel {
@@ -2981,52 +2471,6 @@ impl OneVsRest {
         self
     }
 
-    pub fn classifier(&self) -> Option<&Classifier> {
-        self.classifier.as_ref()
-    }
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-    pub fn set_weight_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("weightCol", value);
-        self
-    }
-    pub fn weight_col(&self) -> Option<&str> {
-        self.params.string_opt("weightCol")
-    }
-    pub fn set_parallelism(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("parallelism", value);
-        self
-    }
-    pub fn parallelism(&self) -> i32 {
-        self.params.int_or("parallelism", 1)
-    }
-
     /// The `parallelism` that a fit reads, of either int width, unlike [`Self::parallelism`],
     /// which narrows it: None when it is set to a null.
     pub fn parallelism_i64(&self) -> Option<i64> {
@@ -3078,7 +2522,7 @@ impl OneVsRest {
         df: &DataFrame,
         num_classes: usize,
         threads: usize,
-    ) -> spark_connect_core::error::Result<Box<dyn Model>> {
+    ) -> spark_connect_core::error::Result<OneVsRestModel> {
         use crate::column::{lit_double, when};
         use std::sync::atomic::{AtomicUsize, Ordering};
         let classifier = self
@@ -3091,7 +2535,7 @@ impl OneVsRest {
             .filter(|name| !name.is_empty() && classifier.supports_weight());
         let mut columns = vec![
             ml_exact_column(self.label_col()),
-            ml_exact_column(self.feature_col()),
+            ml_exact_column(self.features_col()),
         ];
         if let Some(weight) = weight {
             columns.push(ml_exact_column(weight));
@@ -3135,7 +2579,7 @@ impl OneVsRest {
                         let estimator = base.estimator_mut();
                         let mut params = std::mem::take(estimator.params_mut())
                             .set_param_string("labelCol", &binary_label)
-                            .set_param_string("featuresCol", this.feature_col())
+                            .set_param_string("featuresCol", this.features_col())
                             .set_param_string("predictionCol", this.prediction_col());
                         if let Some(weight) = weight {
                             params = params.set_param_string("weightCol", weight);
@@ -3162,7 +2606,7 @@ impl OneVsRest {
             .into_iter()
             .map(|(_, model)| model)
             .collect::<spark_connect_core::error::Result<Vec<_>>>()?;
-        Ok(Box::new(OneVsRestModel {
+        Ok(OneVsRestModel {
             operator: MlOperator::with_uid(
                 "org.apache.spark.ml.classification.OneVsRestModel",
                 &self.operator.uid,
@@ -3171,7 +2615,8 @@ impl OneVsRest {
             params: self.params.clone(),
             models,
             session_id: df.session.session_id().to_string(),
-        }))
+            classifier: self.classifier.clone(),
+        })
     }
 }
 
@@ -3209,6 +2654,13 @@ impl Estimator for OneVsRest {
         &mut self.params
     }
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
+        Ok(Box::new(self.fit(df)?))
+    }
+}
+
+impl OneVsRest {
+    /// Fit the typed OneVsRest model, of one fitted binary classifier per class.
+    pub fn fit(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<OneVsRestModel> {
         // The params are checked before any request. The Python client, which raises PySpark's
         // errors in PySpark's order, reads the max label first, with `max_label` and `fit_classes`.
         self.check_required_params()?;
@@ -3243,6 +2695,8 @@ pub struct OneVsRestModel {
     params: Params,
     models: Vec<Box<dyn Model>>,
     session_id: String,
+    /// The classifier that fitted the models (`classifier` of PySpark's `_OneVsRestParams`).
+    classifier: Option<Classifier>,
 }
 
 impl Clone for OneVsRestModel {
@@ -3252,6 +2706,7 @@ impl Clone for OneVsRestModel {
             params: self.params.clone(),
             models: self.models.iter().map(|m| m.clone_box()).collect(),
             session_id: self.session_id.clone(),
+            classifier: self.classifier.clone(),
         }
     }
 }
@@ -4272,219 +3727,6 @@ impl DecisionTreeClassifier {
         }
     }
 
-    /// Feature vector column.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Numeric label column of non-negative integer class indices below numClasses, which
-    /// is the label column metadata's count, else the maximum label plus one.
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Predicted class output column.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Class probability output column.
-    pub fn set_probability_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("probabilityCol", value);
-        self
-    }
-
-    /// Raw class prediction output column.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Maximum tree depth, from 0 to 30.
-    pub fn set_max_depth(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxDepth", value);
-        self
-    }
-
-    /// Maximum number of bins for discretizing continuous features.
-    pub fn set_max_bins(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxBins", value);
-        self
-    }
-
-    /// Minimum number of training instances in each child node.
-    pub fn set_min_instances_per_node(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("minInstancesPerNode", value);
-        self
-    }
-
-    /// Minimum information gain for a split.
-    pub fn set_min_info_gain(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("minInfoGain", value);
-        self
-    }
-
-    /// Whether to prune redundant nodes, as supported by Spark 4.3.0.
-    pub fn set_prune_tree(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("pruneTree", value);
-        self
-    }
-
-    /// Maximum memory in MB for histogram aggregation.
-    pub fn set_max_memory_in_mb(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxMemoryInMB", value);
-        self
-    }
-
-    /// Whether to cache node IDs for training instances.
-    pub fn set_cache_node_ids(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("cacheNodeIds", value);
-        self
-    }
-
-    /// Node ID cache checkpoint interval; -1 disables checkpointing.
-    pub fn set_checkpoint_interval(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("checkpointInterval", value);
-        self
-    }
-
-    /// Impurity measure: gini or entropy.
-    pub fn set_impurity(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("impurity", value);
-        self
-    }
-
-    /// Random seed for sampling the rows that find the split candidates, on large inputs.
-    pub fn set_seed(mut self, value: i64) -> Self {
-        self.params = self.params.set_param_int_narrow("seed", value);
-        self
-    }
-
-    /// Optional scalar leaf index output column; empty disables it.
-    pub fn set_leaf_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("leafCol", value);
-        self
-    }
-
-    /// Minimum fraction of total weight in each child node, in [0, 0.5).
-    pub fn set_min_weight_fraction_per_node(mut self, value: f64) -> Self {
-        self.params = self
-            .params
-            .set_param_double("minWeightFractionPerNode", value);
-        self
-    }
-
-    /// Optional instance weight column.
-    pub fn set_weight_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("weightCol", value);
-        self
-    }
-
-    /// Per-class thresholds: predictions maximize probability divided by threshold.
-    /// Provide one nonnegative value per class, with at most one zero.
-    pub fn set_thresholds(mut self, values: impl IntoIterator<Item = f64>) -> Self {
-        self.params = self.params.set_param_double_array("thresholds", values);
-        self
-    }
-
-    /// The feature vector column (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The label column (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The predicted class output column (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// The class probability output column (default: "probability").
-    pub fn probability_col(&self) -> &str {
-        self.params.string_or("probabilityCol", "probability")
-    }
-
-    /// The raw class prediction output column (default: "rawPrediction").
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// The maximum tree depth (default: 5).
-    pub fn max_depth(&self) -> i32 {
-        self.params.int_or("maxDepth", 5)
-    }
-
-    /// The maximum number of bins for continuous features (default: 32).
-    pub fn max_bins(&self) -> i32 {
-        self.params.int_or("maxBins", 32)
-    }
-
-    /// The minimum number of training instances in each child node (default: 1).
-    pub fn min_instances_per_node(&self) -> i32 {
-        self.params.int_or("minInstancesPerNode", 1)
-    }
-
-    /// The minimum information gain for a split (default: 0).
-    pub fn min_info_gain(&self) -> f64 {
-        self.params.double_or("minInfoGain", 0.0)
-    }
-
-    /// Whether to prune redundant nodes (default: true).
-    pub fn prune_tree(&self) -> bool {
-        self.params.bool_or("pruneTree", true)
-    }
-
-    /// The maximum memory in MB for histogram aggregation (default: 256).
-    pub fn max_memory_in_mb(&self) -> i32 {
-        self.params.int_or("maxMemoryInMB", 256)
-    }
-
-    /// Whether to cache node IDs for training instances (default: false).
-    pub fn cache_node_ids(&self) -> bool {
-        self.params.bool_or("cacheNodeIds", false)
-    }
-
-    /// The node ID cache checkpoint interval (default: 10).
-    pub fn checkpoint_interval(&self) -> i32 {
-        self.params.int_or("checkpointInterval", 10)
-    }
-
-    /// The impurity measure (default: "gini").
-    pub fn impurity(&self) -> &str {
-        self.params.string_or("impurity", "gini")
-    }
-
-    /// The random seed, if one is set; else Spark's default seed applies.
-    pub fn seed(&self) -> Option<i64> {
-        self.params.long_opt("seed")
-    }
-
-    /// The leaf index output column (default: empty, no column).
-    pub fn leaf_col(&self) -> &str {
-        self.params.string_or("leafCol", "")
-    }
-
-    /// The minimum fraction of total weight in each child node (default: 0).
-    pub fn min_weight_fraction_per_node(&self) -> f64 {
-        self.params.double_or("minWeightFractionPerNode", 0.0)
-    }
-
-    /// The instance weight column, if one is set.
-    pub fn weight_col(&self) -> Option<&str> {
-        self.params.string_opt("weightCol")
-    }
-
-    /// The per-class thresholds, if they are set.
-    pub fn thresholds(&self) -> Option<Vec<f64>> {
-        self.params.double_array_opt("thresholds")
-    }
-
     fn model_from_info(
         &self,
         info: proto::ml_command_result::MlOperatorInfo,
@@ -4524,8 +3766,7 @@ impl Estimator for DecisionTreeClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -4598,103 +3839,10 @@ impl NaiveBayes {
         }
     }
 
-    /// Feature vector column.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Numeric label column of nonnegative integer class indices.
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Predicted class output column.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Class probability output column; empty disables it.
-    pub fn set_probability_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("probabilityCol", value);
-        self
-    }
-
-    /// Raw class prediction output column; empty disables it.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Additive smoothing parameter, which must be nonnegative.
-    pub fn set_smoothing(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("smoothing", value);
-        self
-    }
-
-    /// Model type: multinomial, bernoulli, complement or gaussian.
-    pub fn set_model_type(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("modelType", value);
-        self
-    }
-
-    /// Per-class thresholds: predictions maximize probability divided by threshold.
-    pub fn set_thresholds(mut self, value: impl IntoIterator<Item = f64>) -> Self {
-        self.params = self.params.set_param_double_array("thresholds", value);
-        self
-    }
-
-    /// Optional instance weight column.
-    pub fn set_weight_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("weightCol", value);
-        self
-    }
-
-    /// The featuresCol value; default: "features".
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The labelCol value; default: "label".
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The predictionCol value; default: "prediction".
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// The probabilityCol value; default: "probability".
-    pub fn probability_col(&self) -> &str {
-        self.params.string_or("probabilityCol", "probability")
-    }
-
-    /// The rawPredictionCol value; default: "rawPrediction".
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// The smoothing value; default: 1.0.
-    pub fn smoothing(&self) -> f64 {
-        self.params.double_or("smoothing", 1.0)
-    }
-
-    /// The modelType value; default: "multinomial".
-    pub fn model_type(&self) -> &str {
-        self.params.string_or("modelType", "multinomial")
-    }
-
-    /// The thresholds value, if set.
-    pub fn thresholds(&self) -> Option<Vec<f64>> {
-        self.params.double_array_opt("thresholds")
-    }
-
-    /// The weightCol value, if set.
-    pub fn weight_col(&self) -> Option<&str> {
-        self.params.string_opt("weightCol")
+    /// Fit the typed Naive Bayes model, which holds the server-side model object.
+    pub fn fit(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<NaiveBayesModel> {
+        let info = fit_via_command(&self.operator, &self.params, df)?;
+        self.model_from_info(info, &df.session)
     }
 
     fn model_from_info(
@@ -4736,8 +3884,7 @@ impl Estimator for NaiveBayes {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -4809,284 +3956,10 @@ impl GBTClassifier {
         }
     }
 
-    /// Feature vector column.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Numeric binary label column; labels must be 0 or 1.
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Predicted class output column.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Class probability output column.
-    pub fn set_probability_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("probabilityCol", value);
-        self
-    }
-
-    /// Raw class prediction output column.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Maximum tree depth, from 0 to 30.
-    pub fn set_max_depth(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxDepth", value);
-        self
-    }
-
-    /// Maximum number of bins for discretizing continuous features.
-    pub fn set_max_bins(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxBins", value);
-        self
-    }
-
-    /// Minimum number of training instances in each child node.
-    pub fn set_min_instances_per_node(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("minInstancesPerNode", value);
-        self
-    }
-
-    /// Minimum information gain for a split.
-    pub fn set_min_info_gain(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("minInfoGain", value);
-        self
-    }
-
-    /// Maximum memory in MB for histogram aggregation.
-    pub fn set_max_memory_in_mb(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxMemoryInMB", value);
-        self
-    }
-
-    /// Whether to cache node IDs for training instances.
-    pub fn set_cache_node_ids(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("cacheNodeIds", value);
-        self
-    }
-
-    /// Node ID cache checkpoint interval; -1 disables checkpointing.
-    pub fn set_checkpoint_interval(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("checkpointInterval", value);
-        self
-    }
-
-    /// Impurity setting; Spark uses variance for the regression trees in GBT.
-    pub fn set_impurity(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("impurity", value);
-        self
-    }
-
-    /// Feature subset strategy: auto, all, onethird, sqrt, log2, or a numeric count/fraction.
-    pub fn set_feature_subset_strategy(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featureSubsetStrategy", value);
-        self
-    }
-
-    /// Random seed for split-candidate row sampling, subsampling and feature sampling.
-    pub fn set_seed(mut self, value: i64) -> Self {
-        self.params = self.params.set_param_int_narrow("seed", value);
-        self
-    }
-
-    /// Fraction of training data used to train each tree, in (0, 1].
-    pub fn set_subsampling_rate(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("subsamplingRate", value);
-        self
-    }
-
-    /// Optional output vector of leaf indices, one per tree; empty disables it.
-    pub fn set_leaf_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("leafCol", value);
-        self
-    }
-
-    /// Minimum fraction of total weight in each child node, in [0, 0.5).
-    pub fn set_min_weight_fraction_per_node(mut self, value: f64) -> Self {
-        self.params = self
-            .params
-            .set_param_double("minWeightFractionPerNode", value);
-        self
-    }
-
-    /// Optional instance weight column.
-    pub fn set_weight_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("weightCol", value);
-        self
-    }
-
-    /// Per-class thresholds: predictions maximize probability divided by threshold.
-    /// Provide one nonnegative value per class, with at most one zero.
-    pub fn set_thresholds(mut self, values: impl IntoIterator<Item = f64>) -> Self {
-        self.params = self.params.set_param_double_array("thresholds", values);
-        self
-    }
-
-    /// The feature vector column (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The label column (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The predicted class output column (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// The class probability output column (default: "probability").
-    pub fn probability_col(&self) -> &str {
-        self.params.string_or("probabilityCol", "probability")
-    }
-
-    /// The raw class prediction output column (default: "rawPrediction").
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// The maximum tree depth (default: 5).
-    pub fn max_depth(&self) -> i32 {
-        self.params.int_or("maxDepth", 5)
-    }
-
-    /// The maximum number of bins for continuous features (default: 32).
-    pub fn max_bins(&self) -> i32 {
-        self.params.int_or("maxBins", 32)
-    }
-
-    /// The minimum number of training instances in each child node (default: 1).
-    pub fn min_instances_per_node(&self) -> i32 {
-        self.params.int_or("minInstancesPerNode", 1)
-    }
-
-    /// The minimum information gain for a split (default: 0).
-    pub fn min_info_gain(&self) -> f64 {
-        self.params.double_or("minInfoGain", 0.0)
-    }
-
-    /// The maximum memory in MB for histogram aggregation (default: 256).
-    pub fn max_memory_in_mb(&self) -> i32 {
-        self.params.int_or("maxMemoryInMB", 256)
-    }
-
-    /// Whether to cache node IDs for training instances (default: false).
-    pub fn cache_node_ids(&self) -> bool {
-        self.params.bool_or("cacheNodeIds", false)
-    }
-
-    /// The node ID cache checkpoint interval (default: 10).
-    pub fn checkpoint_interval(&self) -> i32 {
-        self.params.int_or("checkpointInterval", 10)
-    }
-
-    /// The impurity measure (default: "variance").
-    pub fn impurity(&self) -> &str {
-        self.params.string_or("impurity", "variance")
-    }
-
-    /// The feature subset strategy (default: "all").
-    pub fn feature_subset_strategy(&self) -> &str {
-        self.params.string_or("featureSubsetStrategy", "all")
-    }
-
-    /// The random seed, if one is set; else Spark's default seed applies.
-    pub fn seed(&self) -> Option<i64> {
-        self.params.long_opt("seed")
-    }
-
-    /// The fraction of training data used to train each tree (default: 1).
-    pub fn subsampling_rate(&self) -> f64 {
-        self.params.double_or("subsamplingRate", 1.0)
-    }
-
-    /// The leaf index output column (default: empty, no column).
-    pub fn leaf_col(&self) -> &str {
-        self.params.string_or("leafCol", "")
-    }
-
-    /// The minimum fraction of total weight in each child node (default: 0).
-    pub fn min_weight_fraction_per_node(&self) -> f64 {
-        self.params.double_or("minWeightFractionPerNode", 0.0)
-    }
-
-    /// The instance weight column, if one is set.
-    pub fn weight_col(&self) -> Option<&str> {
-        self.params.string_opt("weightCol")
-    }
-
-    /// The per-class thresholds, if they are set.
-    pub fn thresholds(&self) -> Option<Vec<f64>> {
-        self.params.double_array_opt("thresholds")
-    }
-
-    /// Loss function; Spark supports logistic loss.
-    pub fn set_loss_type(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("lossType", value);
-        self
-    }
-
-    /// The lossType value; default: "logistic".
-    pub fn loss_type(&self) -> &str {
-        self.params.string_or("lossType", "logistic")
-    }
-
-    /// Maximum number of boosting iterations (trees).
-    pub fn set_max_iter(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxIter", value);
-        self
-    }
-
-    /// The maxIter value; default: 20.
-    pub fn max_iter(&self) -> i32 {
-        self.params.int_or("maxIter", 20)
-    }
-
-    /// Learning rate for the contribution of each tree after the first, in (0, 1].
-    pub fn set_step_size(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("stepSize", value);
-        self
-    }
-
-    /// The stepSize value; default: 0.1.
-    pub fn step_size(&self) -> f64 {
-        self.params.double_or("stepSize", 0.1)
-    }
-
     /// Relative improvement tolerance for validation-set early stopping.
     pub fn set_validation_tol(mut self, value: f64) -> Self {
         self.params = self.params.set_param_double("validationTol", value);
         self
-    }
-
-    /// The validationTol value; default: 0.01.
-    pub fn validation_tol(&self) -> f64 {
-        self.params.double_or("validationTol", 0.01)
-    }
-
-    /// Optional boolean column: false rows train; true rows validate early stopping.
-    pub fn set_validation_indicator_col(mut self, value: &str) -> Self {
-        self.params = self
-            .params
-            .set_param_string("validationIndicatorCol", value);
-        self
-    }
-
-    /// The validationIndicatorCol value; unset unless explicitly configured.
-    pub fn validation_indicator_col(&self) -> Option<&str> {
-        self.params.string_opt("validationIndicatorCol")
     }
 
     fn model_from_info(
@@ -5128,8 +4001,7 @@ impl Estimator for GBTClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -5202,263 +4074,6 @@ impl RandomForestClassifier {
         }
     }
 
-    /// Feature vector column.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Numeric label column of non-negative integer class indices below numClasses, which
-    /// is the label column metadata's count, else the maximum label plus one.
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Predicted class output column.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Class probability output column.
-    pub fn set_probability_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("probabilityCol", value);
-        self
-    }
-
-    /// Raw class prediction output column.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Maximum tree depth, from 0 to 30.
-    pub fn set_max_depth(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxDepth", value);
-        self
-    }
-
-    /// Maximum number of bins for discretizing continuous features.
-    pub fn set_max_bins(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxBins", value);
-        self
-    }
-
-    /// Minimum number of training instances in each child node.
-    pub fn set_min_instances_per_node(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("minInstancesPerNode", value);
-        self
-    }
-
-    /// Minimum information gain for a split.
-    pub fn set_min_info_gain(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("minInfoGain", value);
-        self
-    }
-
-    /// Whether to prune redundant nodes, as supported by Spark 4.3.0.
-    pub fn set_prune_tree(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("pruneTree", value);
-        self
-    }
-
-    /// Maximum memory in MB for histogram aggregation.
-    pub fn set_max_memory_in_mb(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxMemoryInMB", value);
-        self
-    }
-
-    /// Whether to cache node IDs for training instances.
-    pub fn set_cache_node_ids(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("cacheNodeIds", value);
-        self
-    }
-
-    /// Node ID cache checkpoint interval; -1 disables checkpointing.
-    pub fn set_checkpoint_interval(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("checkpointInterval", value);
-        self
-    }
-
-    /// Impurity measure: gini or entropy.
-    pub fn set_impurity(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("impurity", value);
-        self
-    }
-
-    /// Number of trees in the forest; must be positive.
-    pub fn set_num_trees(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("numTrees", value);
-        self
-    }
-
-    /// Feature subset strategy: auto, all, onethird, sqrt, log2, or a numeric count/fraction.
-    pub fn set_feature_subset_strategy(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featureSubsetStrategy", value);
-        self
-    }
-
-    /// Random seed for sampling.
-    pub fn set_seed(mut self, value: i64) -> Self {
-        self.params = self.params.set_param_int_narrow("seed", value);
-        self
-    }
-
-    /// Fraction of training data used to train each tree, in (0, 1].
-    pub fn set_subsampling_rate(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("subsamplingRate", value);
-        self
-    }
-
-    /// Optional output vector of leaf indices, one per tree; empty disables it.
-    pub fn set_leaf_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("leafCol", value);
-        self
-    }
-
-    /// Minimum fraction of total weight in each child node, in [0, 0.5).
-    pub fn set_min_weight_fraction_per_node(mut self, value: f64) -> Self {
-        self.params = self
-            .params
-            .set_param_double("minWeightFractionPerNode", value);
-        self
-    }
-
-    /// Optional instance weight column.
-    pub fn set_weight_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("weightCol", value);
-        self
-    }
-
-    /// Whether each tree samples training instances with replacement.
-    pub fn set_bootstrap(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("bootstrap", value);
-        self
-    }
-
-    /// Per-class thresholds: predictions maximize probability divided by threshold.
-    /// Provide one nonnegative value per class, with at most one zero.
-    pub fn set_thresholds(mut self, values: impl IntoIterator<Item = f64>) -> Self {
-        self.params = self.params.set_param_double_array("thresholds", values);
-        self
-    }
-
-    /// The feature vector column (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The label column (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The predicted class output column (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// The class probability output column (default: "probability").
-    pub fn probability_col(&self) -> &str {
-        self.params.string_or("probabilityCol", "probability")
-    }
-
-    /// The raw class prediction output column (default: "rawPrediction").
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// The maximum tree depth (default: 5).
-    pub fn max_depth(&self) -> i32 {
-        self.params.int_or("maxDepth", 5)
-    }
-
-    /// The maximum number of bins for continuous features (default: 32).
-    pub fn max_bins(&self) -> i32 {
-        self.params.int_or("maxBins", 32)
-    }
-
-    /// The minimum number of training instances in each child node (default: 1).
-    pub fn min_instances_per_node(&self) -> i32 {
-        self.params.int_or("minInstancesPerNode", 1)
-    }
-
-    /// The minimum information gain for a split (default: 0).
-    pub fn min_info_gain(&self) -> f64 {
-        self.params.double_or("minInfoGain", 0.0)
-    }
-
-    /// Whether to prune redundant nodes (default: true).
-    pub fn prune_tree(&self) -> bool {
-        self.params.bool_or("pruneTree", true)
-    }
-
-    /// The maximum memory in MB for histogram aggregation (default: 256).
-    pub fn max_memory_in_mb(&self) -> i32 {
-        self.params.int_or("maxMemoryInMB", 256)
-    }
-
-    /// Whether to cache node IDs for training instances (default: false).
-    pub fn cache_node_ids(&self) -> bool {
-        self.params.bool_or("cacheNodeIds", false)
-    }
-
-    /// The node ID cache checkpoint interval (default: 10).
-    pub fn checkpoint_interval(&self) -> i32 {
-        self.params.int_or("checkpointInterval", 10)
-    }
-
-    /// The impurity measure (default: "gini").
-    pub fn impurity(&self) -> &str {
-        self.params.string_or("impurity", "gini")
-    }
-
-    /// The number of trees (default: 20).
-    pub fn num_trees(&self) -> i32 {
-        self.params.int_or("numTrees", 20)
-    }
-
-    /// The feature subset strategy (default: "auto").
-    pub fn feature_subset_strategy(&self) -> &str {
-        self.params.string_or("featureSubsetStrategy", "auto")
-    }
-
-    /// The random seed, if one is set; else Spark's default seed applies.
-    pub fn seed(&self) -> Option<i64> {
-        self.params.long_opt("seed")
-    }
-
-    /// The fraction of training data used to train each tree (default: 1).
-    pub fn subsampling_rate(&self) -> f64 {
-        self.params.double_or("subsamplingRate", 1.0)
-    }
-
-    /// The leaf index output column (default: empty, no column).
-    pub fn leaf_col(&self) -> &str {
-        self.params.string_or("leafCol", "")
-    }
-
-    /// The minimum fraction of total weight in each child node (default: 0).
-    pub fn min_weight_fraction_per_node(&self) -> f64 {
-        self.params.double_or("minWeightFractionPerNode", 0.0)
-    }
-
-    /// The instance weight column, if one is set.
-    pub fn weight_col(&self) -> Option<&str> {
-        self.params.string_opt("weightCol")
-    }
-
-    /// Whether each tree samples training instances with replacement (default: true).
-    pub fn bootstrap(&self) -> bool {
-        self.params.bool_or("bootstrap", true)
-    }
-
-    /// The per-class thresholds, if they are set.
-    pub fn thresholds(&self) -> Option<Vec<f64>> {
-        self.params.double_array_opt("thresholds")
-    }
-
     fn model_from_info(
         &self,
         info: proto::ml_command_result::MlOperatorInfo,
@@ -5473,6 +4088,7 @@ impl RandomForestClassifier {
             ),
             params: self.params.clone(),
             cached,
+            training_summary: None,
         })
     }
 }
@@ -5498,8 +4114,7 @@ impl Estimator for RandomForestClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -5512,6 +4127,9 @@ pub struct RandomForestClassificationModel {
     operator: MlOperator,
     params: Params,
     cached: CachedModel,
+    /// The target of the training summary (`<model>.summary`), which a fit sets with the transform
+    /// of its training dataset, so that the server can recreate the summary; None otherwise.
+    training_summary: Option<MlTarget>,
 }
 
 impl Transformer for RandomForestClassificationModel {
@@ -7388,12 +6006,12 @@ mod tests {
     #[test]
     fn test_logistic_regression_creation() {
         let lr = LogisticRegression::new()
-            .set_feature_col("features")
+            .set_features_col("features")
             .set_label_col("label")
             .set_prediction_col("pred")
             .set_max_iter(50);
 
-        assert_eq!(lr.feature_col(), "features");
+        assert_eq!(lr.features_col(), "features");
         assert_eq!(lr.label_col(), "label");
         assert_eq!(lr.prediction_col(), "pred");
         assert_eq!(lr.max_iter(), 50);
@@ -7877,7 +6495,7 @@ mod tests {
     fn linear_svc_parameters_use_the_spark_names_and_literal_types() {
         use proto::expression::literal::LiteralType as L;
         let svc = LinearSVC::new()
-            .set_feature_col("input")
+            .set_features_col("input")
             .set_label_col("target")
             .set_prediction_col("pred")
             .set_raw_prediction_col("margin")
@@ -8167,7 +6785,7 @@ mod tests {
     #[test]
     fn fmclassifier_defaults_and_configured_getters() {
         let default = FMClassifier::new();
-        assert_eq!(default.feature_col(), "features");
+        assert_eq!(default.features_col(), "features");
         assert_eq!(default.label_col(), "label");
         assert_eq!(default.prediction_col(), "prediction");
         assert_eq!(default.probability_col(), "probability");
@@ -8183,9 +6801,12 @@ mod tests {
         assert_eq!(default.tol(), 1e-06);
         assert_eq!(default.solver(), "adamW");
         assert_eq!(default.thresholds(), None);
-        assert_eq!(default.seed(), None);
+        assert_eq!(
+            default.seed(),
+            java_string_hash("org.apache.spark.ml.classification.FMClassifier")
+        );
         let configured = FMClassifier::new()
-            .set_feature_col("input")
+            .set_features_col("input")
             .set_label_col("target")
             .set_prediction_col("pred")
             .set_probability_col("prob")
@@ -8202,7 +6823,7 @@ mod tests {
             .set_solver("gd")
             .set_thresholds([1.0, 2.0])
             .set_seed(8589934592);
-        assert_eq!(configured.feature_col(), "input");
+        assert_eq!(configured.features_col(), "input");
         assert_eq!(configured.label_col(), "target");
         assert_eq!(configured.prediction_col(), "pred");
         assert_eq!(configured.probability_col(), "prob");
@@ -8218,18 +6839,21 @@ mod tests {
         assert_eq!(configured.tol(), 1e-08);
         assert_eq!(configured.solver(), "gd");
         assert_eq!(configured.thresholds(), Some(vec![1.0, 2.0]));
-        assert_eq!(configured.seed(), Some(8589934592));
+        assert_eq!(configured.seed(), 8589934592);
     }
 
     #[test]
     fn multilayer_perceptron_classifier_defaults_and_configured_getters() {
         let default = MultilayerPerceptronClassifier::new();
-        assert_eq!(default.feature_col(), "features");
+        assert_eq!(default.features_col(), "features");
         assert_eq!(default.label_col(), "label");
         assert_eq!(default.prediction_col(), "prediction");
         assert_eq!(default.max_iter(), 100);
         assert_eq!(default.tol(), 1e-06);
-        assert_eq!(default.seed(), None);
+        assert_eq!(
+            default.seed(),
+            java_string_hash("org.apache.spark.ml.classification.MultilayerPerceptronClassifier")
+        );
         assert_eq!(default.layers(), None);
         assert_eq!(default.block_size(), 128);
         assert_eq!(default.step_size(), 0.03);
@@ -8239,7 +6863,7 @@ mod tests {
         assert_eq!(default.raw_prediction_col(), "rawPrediction");
         assert_eq!(default.thresholds(), None);
         let configured = MultilayerPerceptronClassifier::new()
-            .set_feature_col("input")
+            .set_features_col("input")
             .set_label_col("target")
             .set_prediction_col("pred")
             .set_max_iter(50)
@@ -8256,12 +6880,12 @@ mod tests {
             .set_probability_col("prob")
             .set_raw_prediction_col("scores")
             .set_thresholds([1.0, 2.0]);
-        assert_eq!(configured.feature_col(), "input");
+        assert_eq!(configured.features_col(), "input");
         assert_eq!(configured.label_col(), "target");
         assert_eq!(configured.prediction_col(), "pred");
         assert_eq!(configured.max_iter(), 50);
         assert_eq!(configured.tol(), 1e-08);
-        assert_eq!(configured.seed(), Some(8589934592));
+        assert_eq!(configured.seed(), 8589934592);
         assert_eq!(configured.layers(), Some(vec![2, 3, 2]));
         assert_eq!(configured.block_size(), 4);
         assert_eq!(configured.step_size(), 0.1);
@@ -8298,20 +6922,20 @@ mod tests {
     #[test]
     fn one_vs_rest_defaults_and_configured_getters() {
         let default = OneVsRest::new();
-        assert_eq!(default.feature_col(), "features");
+        assert_eq!(default.features_col(), "features");
         assert_eq!(default.label_col(), "label");
         assert_eq!(default.prediction_col(), "prediction");
         assert_eq!(default.raw_prediction_col(), "rawPrediction");
         assert_eq!(default.weight_col(), None);
         assert_eq!(default.parallelism(), 1);
         let configured = OneVsRest::new()
-            .set_feature_col("input")
+            .set_features_col("input")
             .set_label_col("target")
             .set_prediction_col("pred")
             .set_raw_prediction_col("scores")
             .set_weight_col("weight")
             .set_parallelism(3);
-        assert_eq!(configured.feature_col(), "input");
+        assert_eq!(configured.features_col(), "input");
         assert_eq!(configured.label_col(), "target");
         assert_eq!(configured.prediction_col(), "pred");
         assert_eq!(configured.raw_prediction_col(), "scores");
@@ -8809,7 +7433,7 @@ mod tests {
     #[test]
     fn decision_tree_classifier_getters_follow_defaults_builders_and_mutable_params() {
         let mut tree = DecisionTreeClassifier::default();
-        assert_eq!(tree.feature_col(), "features");
+        assert_eq!(tree.features_col(), "features");
         assert_eq!(tree.label_col(), "label");
         assert_eq!(tree.prediction_col(), "prediction");
         assert_eq!(tree.probability_col(), "probability");
@@ -8823,13 +7447,16 @@ mod tests {
         assert!(!tree.cache_node_ids());
         assert_eq!(tree.checkpoint_interval(), 10);
         assert_eq!(tree.impurity(), "gini");
-        assert_eq!(tree.seed(), None);
+        assert_eq!(
+            tree.seed(),
+            java_string_hash("org.apache.spark.ml.classification.DecisionTreeClassifier")
+        );
         assert_eq!(tree.weight_col(), None);
         assert_eq!(tree.leaf_col(), "");
         assert_eq!(tree.min_weight_fraction_per_node(), 0.0);
         assert_eq!(tree.thresholds(), None);
         let mut built = DecisionTreeClassifier::new()
-            .set_feature_col("input")
+            .set_features_col("input")
             .set_label_col("target")
             .set_prediction_col("class")
             .set_probability_col("probs")
@@ -8852,8 +7479,8 @@ mod tests {
             .params()
             .clone()
             .set_param_string("featuresCol", "input");
-        assert_eq!(tree.feature_col(), "input");
-        assert_eq!(built.feature_col(), tree.feature_col());
+        assert_eq!(tree.features_col(), "input");
+        assert_eq!(built.features_col(), tree.features_col());
         *tree.params_mut() = tree.params().clone().set_param_string("labelCol", "target");
         assert_eq!(tree.label_col(), "target");
         assert_eq!(built.label_col(), tree.label_col());
@@ -8918,7 +7545,7 @@ mod tests {
             .params()
             .clone()
             .set_param_int_narrow("seed", 1_i64 << 33);
-        assert_eq!(tree.seed(), Some(1_i64 << 33));
+        assert_eq!(tree.seed(), 1_i64 << 33);
         assert_eq!(built.seed(), tree.seed());
         *tree.params_mut() = tree
             .params()
@@ -8954,7 +7581,7 @@ mod tests {
     #[test]
     fn naive_bayes_getters_follow_defaults_builders_and_mutable_params() {
         let mut estimator = NaiveBayes::default();
-        assert_eq!(estimator.feature_col(), "features");
+        assert_eq!(estimator.features_col(), "features");
         assert_eq!(estimator.label_col(), "label");
         assert_eq!(estimator.prediction_col(), "prediction");
         assert_eq!(estimator.probability_col(), "probability");
@@ -8964,7 +7591,7 @@ mod tests {
         assert_eq!(estimator.thresholds(), None);
         assert_eq!(estimator.weight_col(), None);
         let built = NaiveBayes::new()
-            .set_feature_col("input")
+            .set_features_col("input")
             .set_label_col("target")
             .set_prediction_col("class")
             .set_probability_col("probs")
@@ -8977,8 +7604,8 @@ mod tests {
             .params()
             .clone()
             .set_param_string("featuresCol", "input");
-        assert_eq!(estimator.feature_col(), "input");
-        assert_eq!(built.feature_col(), estimator.feature_col());
+        assert_eq!(estimator.features_col(), "input");
+        assert_eq!(built.features_col(), estimator.features_col());
         *estimator.params_mut() = estimator
             .params()
             .clone()
@@ -9172,7 +7799,7 @@ mod tests {
     #[test]
     fn gbt_classifier_getters_follow_defaults_builders_and_mutable_params() {
         let mut tree = GBTClassifier::default();
-        assert_eq!(tree.feature_col(), "features");
+        assert_eq!(tree.features_col(), "features");
         assert_eq!(tree.label_col(), "label");
         assert_eq!(tree.prediction_col(), "prediction");
         assert_eq!(tree.probability_col(), "probability");
@@ -9186,7 +7813,10 @@ mod tests {
         assert_eq!(tree.checkpoint_interval(), 10);
         assert_eq!(tree.impurity(), "variance");
         assert_eq!(tree.feature_subset_strategy(), "all");
-        assert_eq!(tree.seed(), None);
+        assert_eq!(
+            tree.seed(),
+            java_string_hash("org.apache.spark.ml.classification.GBTClassifier")
+        );
         assert_eq!(tree.subsampling_rate(), 1.0);
         assert_eq!(tree.leaf_col(), "");
         assert_eq!(tree.min_weight_fraction_per_node(), 0.0);
@@ -9198,7 +7828,7 @@ mod tests {
         assert_eq!(tree.validation_tol(), 0.01);
         assert_eq!(tree.validation_indicator_col(), None);
         let mut built = GBTClassifier::new()
-            .set_feature_col("input")
+            .set_features_col("input")
             .set_label_col("target")
             .set_prediction_col("class")
             .set_probability_col("probs")
@@ -9227,8 +7857,8 @@ mod tests {
             .params()
             .clone()
             .set_param_string("featuresCol", "input");
-        assert_eq!(tree.feature_col(), "input");
-        assert_eq!(built.feature_col(), tree.feature_col());
+        assert_eq!(tree.features_col(), "input");
+        assert_eq!(built.features_col(), tree.features_col());
         *tree.params_mut() = tree.params().clone().set_param_string("labelCol", "target");
         assert_eq!(tree.label_col(), "target");
         assert_eq!(built.label_col(), tree.label_col());
@@ -9299,7 +7929,7 @@ mod tests {
             .params()
             .clone()
             .set_param_int_narrow("seed", 1_i64 << 33);
-        assert_eq!(tree.seed(), Some(1_i64 << 33));
+        assert_eq!(tree.seed(), 1_i64 << 33);
         assert_eq!(built.seed(), tree.seed());
         *tree.params_mut() = tree
             .params()
@@ -10167,7 +8797,7 @@ mod tests {
             ($s:expr) => {{
                 let s: &LinearSVC = &$s;
                 (
-                    (s.feature_col(), s.label_col(), s.prediction_col()),
+                    (s.features_col(), s.label_col(), s.prediction_col()),
                     (s.raw_prediction_col(), s.max_iter(), s.reg_param(), s.tol()),
                     (s.fit_intercept(), s.standardization(), s.threshold()),
                     (
@@ -10188,7 +8818,7 @@ mod tests {
             )
         );
         let svc = svc
-            .set_feature_col("f")
+            .set_features_col("f")
             .set_label_col("l")
             .set_prediction_col("p")
             .set_raw_prediction_col("r")
@@ -10276,7 +8906,7 @@ mod tests {
             ($f:expr) => {{
                 let f: &RandomForestClassifier = &$f;
                 (
-                    (f.feature_col(), f.label_col(), f.prediction_col()),
+                    (f.features_col(), f.label_col(), f.prediction_col()),
                     (f.probability_col(), f.raw_prediction_col(), f.max_depth()),
                     (f.max_bins(), f.min_instances_per_node(), f.min_info_gain()),
                     (f.prune_tree(), f.max_memory_in_mb(), f.cache_node_ids()),
@@ -10299,13 +8929,17 @@ mod tests {
                 (32, 1, 0.0),
                 (true, 256, false),
                 (10, "gini", 20),
-                ("auto", None, 1.0),
+                (
+                    "auto",
+                    java_string_hash("org.apache.spark.ml.classification.RandomForestClassifier"),
+                    1.0
+                ),
                 ("", 0.0, None),
                 (true, None)
             )
         );
         let rf = rf
-            .set_feature_col("f")
+            .set_features_col("f")
             .set_label_col("l")
             .set_prediction_col("p")
             .set_probability_col("pr")
@@ -10336,7 +8970,7 @@ mod tests {
                 (16, 2, 0.1),
                 (false, 64, true),
                 (-1, "entropy", 7),
-                ("all", Some(5), 0.5),
+                ("all", 5, 0.5),
                 ("leaves", 0.2, Some("w")),
                 (false, Some(vec![0.25, 0.75]))
             )
@@ -10345,7 +8979,7 @@ mod tests {
         let logistic = LogisticRegression::new();
         assert_eq!(
             (
-                logistic.feature_col(),
+                logistic.features_col(),
                 logistic.label_col(),
                 logistic.prediction_col(),
                 logistic.max_iter()
@@ -10395,7 +9029,7 @@ mod tests {
         let model = fitted_logistic_regression(&session);
         assert_eq!(
             (
-                model.feature_col(),
+                model.features_col(),
                 model.label_col(),
                 model.prediction_col()
             ),
