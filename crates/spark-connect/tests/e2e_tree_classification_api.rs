@@ -15,9 +15,10 @@ use spark_connect::column::col;
 use spark_connect::ml::{
     BinaryClassificationSummary, ClassificationModel, ClassificationSummary,
     DecisionTreeClassificationModel, DecisionTreeClassifier, DecisionTreeModel, Estimator,
-    MlSummary, MlVector, Model, PredictionModel, ProbabilisticClassificationModel,
-    RandomForestClassificationModel, RandomForestClassifier, RandomForestSummary,
-    RandomForestTrainingSummary, TrainingSummary, Transformer, TreeEnsembleModel,
+    GBTClassificationModel, GBTClassifier, MlSummary, MlVector, Model, PredictionModel,
+    ProbabilisticClassificationModel, RandomForestClassificationModel, RandomForestClassifier,
+    RandomForestSummary, RandomForestTrainingSummary, TrainingSummary, Transformer,
+    TreeEnsembleModel,
 };
 use spark_connect::DataFrame;
 use tree_classification::{assert_close, dataset, expected, vector_json};
@@ -81,11 +82,12 @@ fn check(golden: &Value, section: &str, key: &str, member: &str, actual: Value) 
     );
 }
 
-/// A model's description with its uid taken out: the uid is the instance's, not the server's.
+/// A model's description with its uid taken out (`uid=X,` or `uid = X,`): the uid is the
+/// instance's, not the server's.
 fn without_uid(text: &str) -> String {
-    let start = text.find("uid=").expect("a uid");
+    let start = text.find("uid").expect("a uid");
     let end = start + text[start..].find(',').expect("the uid's end");
-    format!("{}uid=*{}", &text[..start], &text[end..])
+    format!("{}uid*{}", &text[..start], &text[end..])
 }
 
 /// The values of `name` of `frame`, in the order of its `id`.
@@ -422,4 +424,114 @@ fn random_forest_model_loads_without_a_training_summary() {
         loaded.predict(&MlVector::Dense(vec![0.5, 1.5])).unwrap(),
         model.predict(&MlVector::Dense(vec![0.5, 1.5])).unwrap(),
     );
+}
+
+/// A gradient-boosted classifier of three iterations, with the golden's depth, seed, step size,
+/// loss and weight column. Boosting has no sampling, so the model is the golden's on any server.
+fn boosted() -> GBTClassifier {
+    GBTClassifier::new()
+        .set_max_depth(2)
+        .set_max_iter(3)
+        .set_seed(42)
+        .set_step_size(0.1)
+        .set_loss_type("logistic")
+        .set_feature_subset_strategy("all")
+        .set_weight_col("weight")
+}
+
+#[test]
+fn gradient_boosted_model_matches_pyspark() {
+    let Some(s) = live_session() else {
+        return;
+    };
+    let g = golden();
+    let eval = dataset(&s, &g, "binary_eval");
+    let model = boosted().fit(&dataset(&s, &g, "binary_train")).unwrap();
+    let key = "GBTClassifier";
+    let c = |member: &str, actual: Value| check(&g, "models", key, member, actual);
+    c("numClasses", json!(model.num_classes().unwrap()));
+    c("numFeatures", json!(model.num_features().unwrap()));
+    c("getNumTrees", json!(model.get_num_trees().unwrap()));
+    c("totalNumNodes", json!(model.total_num_nodes().unwrap()));
+    c("treeWeights", json!(model.tree_weights().unwrap()));
+    c(
+        "featureImportances",
+        vector_json(&model.feature_importances().unwrap()),
+    );
+    assert_close(
+        &json!(without_uid(&model.to_debug_string().unwrap())),
+        &json!(without_uid(
+            expected(&g, "models", key, "toDebugString")
+                .as_str()
+                .unwrap()
+        )),
+        "GBTClassifier.toDebugString",
+    );
+    c(
+        "supportedFeatureSubsetStrategies",
+        json!(model.supported_feature_subset_strategies()),
+    );
+    c("supportedImpurities", json!(model.supported_impurities()));
+    c("supportedLossTypes", json!(model.supported_loss_types()));
+    c(
+        "evaluateEachIteration",
+        json!(model.evaluate_each_iteration(&eval).unwrap()),
+    );
+    for (name, features) in probes() {
+        c(
+            &format!("predict-{name}"),
+            json!(model.predict(&features).unwrap()),
+        );
+        c(
+            &format!("predictLeaf-{name}"),
+            vector_json(&model.predict_leaf(&features).unwrap()),
+        );
+        c(
+            &format!("predictRaw-{name}"),
+            vector_json(&model.predict_raw(&features).unwrap()),
+        );
+        c(
+            &format!("predictProbability-{name}"),
+            vector_json(&model.predict_probability(&features).unwrap()),
+        );
+    }
+
+    // The first tree is a regression tree of its own.
+    let trees = model.trees().unwrap();
+    assert_eq!(trees.len(), 3);
+    let tree_key = "GBTClassifier.trees[0]";
+    let t = |member: &str, actual: Value| check(&g, "models", tree_key, member, actual);
+    t("depth", json!(trees[0].depth().unwrap()));
+    t("numNodes", json!(trees[0].num_nodes().unwrap()));
+    t("numFeatures", json!(trees[0].num_features().unwrap()));
+    t(
+        "featureImportances",
+        vector_json(&trees[0].feature_importances().unwrap()),
+    );
+    for (name, features) in probes() {
+        t(
+            &format!("predict-{name}"),
+            json!(trees[0].predict(&features).unwrap()),
+        );
+    }
+}
+
+#[test]
+fn gradient_boosted_model_round_trips_through_save_and_load() {
+    let Some(s) = live_session() else {
+        return;
+    };
+    let g = golden();
+    let model = boosted().fit(&dataset(&s, &g, "binary_train")).unwrap();
+    let path = scratch_path("gbt-model");
+    model.write().unwrap().overwrite().save(&path).unwrap();
+    let loaded = GBTClassificationModel::load(&s, &path).unwrap();
+    check(
+        &g,
+        "models",
+        "GBTClassifier",
+        "predict-dense",
+        json!(loaded.predict(&MlVector::Dense(vec![0.5, 1.5])).unwrap()),
+    );
+    assert_eq!(loaded.trees().unwrap().len(), 3);
 }

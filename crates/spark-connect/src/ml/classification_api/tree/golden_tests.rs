@@ -440,6 +440,33 @@ fn gbt_model_accessors_send_the_golden_requests() {
         |v| Ok(vector_json(&as_vector("predictRaw", v)?)),
         &s("predictRaw-dense"),
     );
+    check(
+        &requests,
+        g("getNumTrees"),
+        || {
+            let _ = model.get_num_trees();
+        },
+        |v| Ok(json!(as_i32("getNumTrees", v)?)),
+        &s("getNumTrees"),
+    );
+    check(
+        &requests,
+        g("totalNumNodes"),
+        || {
+            let _ = model.total_num_nodes();
+        },
+        |v| Ok(json!(as_i32("totalNumNodes", v)?)),
+        &s("totalNumNodes"),
+    );
+    check(
+        &requests,
+        g("treeWeights"),
+        || {
+            let _ = model.tree_weights();
+        },
+        |v| Ok(json!(as_f64s("treeWeights", v)?)),
+        &s("treeWeights"),
+    );
     assert_eq!(model.supported_loss_types(), ["logistic"]);
     assert_eq!(model.supported_impurities(), ["variance"]);
 }

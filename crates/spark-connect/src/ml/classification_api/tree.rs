@@ -21,9 +21,10 @@ use crate::dataframe::DataFrame;
 use crate::ml::tree_api::{as_f64s, fetch_value};
 use crate::ml::{
     fetch, fit_via_command, read_model, read_operator, DecisionTreeClassificationModel,
-    DecisionTreeClassifier, DecisionTreeModel, Estimator, FetchArg, GBTClassificationModel,
-    GBTClassifier, MlOperator, MlRef, MlTarget, Model, OperatorType, Params, PredictionModel,
-    RandomForestClassificationModel, RandomForestClassifier, TreeEnsembleModel,
+    DecisionTreeClassifier, DecisionTreeModel, DecisionTreeRegressionModel, Estimator, FetchArg,
+    GBTClassificationModel, GBTClassifier, MlOperator, MlRef, MlTarget, Model, OperatorType,
+    Params, PredictionModel, RandomForestClassificationModel, RandomForestClassifier,
+    TreeEnsembleModel,
 };
 use crate::SparkSession;
 
@@ -432,6 +433,14 @@ impl GBTClassificationModel {
     /// The loss types that the model supports (`supportedLossTypes`).
     pub fn supported_loss_types(&self) -> &'static [&'static str] {
         LOSS_TYPES
+    }
+}
+
+impl TreeEnsembleModel for GBTClassificationModel {
+    type Tree = DecisionTreeRegressionModel;
+
+    fn tree_of(&self, tree: MlRef) -> DecisionTreeRegressionModel {
+        DecisionTreeRegressionModel::from_ml_ref(tree, Params::new())
     }
 }
 
