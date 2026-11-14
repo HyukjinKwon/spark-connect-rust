@@ -1832,6 +1832,411 @@
     "ok",
     "False"
    ],
+   "ovr_fm_models_hasSummary": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_fm_models_isSet_labelCol": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_fm_models_labelCols": [
+    "ok",
+    [
+     "'mc2b$0'",
+     "'mc2b$1'",
+     "'mc2b$2'"
+    ]
+   ],
+   "ovr_fm_models_len": [
+    "ok",
+    "3"
+   ],
+   "ovr_fm_models_params": [
+    "ok",
+    [
+     [
+      "('factorSize', '2')",
+      "('featuresCol', \"'features'\")",
+      "('fitIntercept', 'True')",
+      "('fitLinear', 'True')",
+      "('initStd', '0.01')",
+      "('labelCol', \"'mc2b$0'\")",
+      "('maxIter', '5')",
+      "('miniBatchFraction', '1.0')",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('regParam', '0.0')",
+      "('seed', '1')",
+      "('solver', \"'adamW'\")",
+      "('stepSize', '1.0')",
+      "('tol', '1e-06')"
+     ],
+     [
+      "('factorSize', '2')",
+      "('featuresCol', \"'features'\")",
+      "('fitIntercept', 'True')",
+      "('fitLinear', 'True')",
+      "('initStd', '0.01')",
+      "('labelCol', \"'mc2b$1'\")",
+      "('maxIter', '5')",
+      "('miniBatchFraction', '1.0')",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('regParam', '0.0')",
+      "('seed', '1')",
+      "('solver', \"'adamW'\")",
+      "('stepSize', '1.0')",
+      "('tol', '1e-06')"
+     ],
+     [
+      "('factorSize', '2')",
+      "('featuresCol', \"'features'\")",
+      "('fitIntercept', 'True')",
+      "('fitLinear', 'True')",
+      "('initStd', '0.01')",
+      "('labelCol', \"'mc2b$2'\")",
+      "('maxIter', '5')",
+      "('miniBatchFraction', '1.0')",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('regParam', '0.0')",
+      "('seed', '1')",
+      "('solver', \"'adamW'\")",
+      "('stepSize', '1.0')",
+      "('tol', '1e-06')"
+     ]
+    ]
+   ],
+   "ovr_fm_models_same_list": [
+    "ok",
+    "True"
+   ],
+   "ovr_fm_models_summary_accuracy": [
+    "ok",
+    [
+     1.0,
+     1.0,
+     1.0
+    ]
+   ],
+   "ovr_fm_models_types": [
+    "ok",
+    [
+     "('FMClassificationModel', 'classification')",
+     "('FMClassificationModel', 'classification')",
+     "('FMClassificationModel', 'classification')"
+    ]
+   ],
+   "ovr_fm_models_uids_are_classifier": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_linear_svc_models_hasSummary": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_linear_svc_models_isSet_labelCol": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_linear_svc_models_labelCols": [
+    "ok",
+    [
+     "'mc2b$0'",
+     "'mc2b$1'",
+     "'mc2b$2'"
+    ]
+   ],
+   "ovr_linear_svc_models_len": [
+    "ok",
+    "3"
+   ],
+   "ovr_linear_svc_models_params": [
+    "ok",
+    [
+     [
+      "('aggregationDepth', '2')",
+      "('featuresCol', \"'features'\")",
+      "('fitIntercept', 'True')",
+      "('labelCol', \"'mc2b$0'\")",
+      "('maxBlockSizeInMB', '0.0')",
+      "('maxIter', '5')",
+      "('predictionCol', \"'prediction'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('regParam', '0.01')",
+      "('standardization', 'True')",
+      "('threshold', '0.0')",
+      "('tol', '1e-06')"
+     ],
+     [
+      "('aggregationDepth', '2')",
+      "('featuresCol', \"'features'\")",
+      "('fitIntercept', 'True')",
+      "('labelCol', \"'mc2b$1'\")",
+      "('maxBlockSizeInMB', '0.0')",
+      "('maxIter', '5')",
+      "('predictionCol', \"'prediction'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('regParam', '0.01')",
+      "('standardization', 'True')",
+      "('threshold', '0.0')",
+      "('tol', '1e-06')"
+     ],
+     [
+      "('aggregationDepth', '2')",
+      "('featuresCol', \"'features'\")",
+      "('fitIntercept', 'True')",
+      "('labelCol', \"'mc2b$2'\")",
+      "('maxBlockSizeInMB', '0.0')",
+      "('maxIter', '5')",
+      "('predictionCol', \"'prediction'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('regParam', '0.01')",
+      "('standardization', 'True')",
+      "('threshold', '0.0')",
+      "('tol', '1e-06')"
+     ]
+    ]
+   ],
+   "ovr_linear_svc_models_same_list": [
+    "ok",
+    "True"
+   ],
+   "ovr_linear_svc_models_summary_accuracy": [
+    "ok",
+    [
+     1.0,
+     1.0,
+     1.0
+    ]
+   ],
+   "ovr_linear_svc_models_types": [
+    "ok",
+    [
+     "('LinearSVCModel', 'classification')",
+     "('LinearSVCModel', 'classification')",
+     "('LinearSVCModel', 'classification')"
+    ]
+   ],
+   "ovr_linear_svc_models_uids_are_classifier": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_mlp_models_hasSummary": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_mlp_models_isSet_labelCol": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_mlp_models_labelCols": [
+    "ok",
+    [
+     "'mc2b$0'",
+     "'mc2b$1'",
+     "'mc2b$2'"
+    ]
+   ],
+   "ovr_mlp_models_len": [
+    "ok",
+    "3"
+   ],
+   "ovr_mlp_models_params": [
+    "ok",
+    [
+     [
+      "('blockSize', '128')",
+      "('featuresCol', \"'features'\")",
+      "('labelCol', \"'mc2b$0'\")",
+      "('layers', '[2, 4, 2]')",
+      "('maxIter', '5')",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('seed', '1')",
+      "('solver', \"'l-bfgs'\")",
+      "('stepSize', '0.03')",
+      "('tol', '1e-06')"
+     ],
+     [
+      "('blockSize', '128')",
+      "('featuresCol', \"'features'\")",
+      "('labelCol', \"'mc2b$1'\")",
+      "('layers', '[2, 4, 2]')",
+      "('maxIter', '5')",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('seed', '1')",
+      "('solver', \"'l-bfgs'\")",
+      "('stepSize', '0.03')",
+      "('tol', '1e-06')"
+     ],
+     [
+      "('blockSize', '128')",
+      "('featuresCol', \"'features'\")",
+      "('labelCol', \"'mc2b$2'\")",
+      "('layers', '[2, 4, 2]')",
+      "('maxIter', '5')",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('seed', '1')",
+      "('solver', \"'l-bfgs'\")",
+      "('stepSize', '0.03')",
+      "('tol', '1e-06')"
+     ]
+    ]
+   ],
+   "ovr_mlp_models_same_list": [
+    "ok",
+    "True"
+   ],
+   "ovr_mlp_models_summary_accuracy": [
+    "ok",
+    [
+     1.0,
+     1.0,
+     1.0
+    ]
+   ],
+   "ovr_mlp_models_types": [
+    "ok",
+    [
+     "('MultilayerPerceptronClassificationModel', 'classification')",
+     "('MultilayerPerceptronClassificationModel', 'classification')",
+     "('MultilayerPerceptronClassificationModel', 'classification')"
+    ]
+   ],
+   "ovr_mlp_models_uids_are_classifier": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_nb_models_hasSummary": [
+    "ok",
+    [
+     "None",
+     "None",
+     "None"
+    ]
+   ],
+   "ovr_nb_models_isSet_labelCol": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_nb_models_labelCols": [
+    "ok",
+    [
+     "'mc2b$0'",
+     "'mc2b$1'",
+     "'mc2b$2'"
+    ]
+   ],
+   "ovr_nb_models_len": [
+    "ok",
+    "3"
+   ],
+   "ovr_nb_models_params": [
+    "ok",
+    [
+     [
+      "('featuresCol', \"'features'\")",
+      "('labelCol', \"'mc2b$0'\")",
+      "('modelType', \"'multinomial'\")",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('smoothing', '1.0')"
+     ],
+     [
+      "('featuresCol', \"'features'\")",
+      "('labelCol', \"'mc2b$1'\")",
+      "('modelType', \"'multinomial'\")",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('smoothing', '1.0')"
+     ],
+     [
+      "('featuresCol', \"'features'\")",
+      "('labelCol', \"'mc2b$2'\")",
+      "('modelType', \"'multinomial'\")",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('smoothing', '1.0')"
+     ]
+    ]
+   ],
+   "ovr_nb_models_same_list": [
+    "ok",
+    "True"
+   ],
+   "ovr_nb_models_summary_accuracy": [
+    "ok",
+    []
+   ],
+   "ovr_nb_models_types": [
+    "ok",
+    [
+     "('NaiveBayesModel', 'classification')",
+     "('NaiveBayesModel', 'classification')",
+     "('NaiveBayesModel', 'classification')"
+    ]
+   ],
+   "ovr_nb_models_uids_are_classifier": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
    "repr_prefix": [
     "ok",
     "'OneVsRestModel_<uid>'"

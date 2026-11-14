@@ -53,6 +53,27 @@ SPECS = {
 }
 
 
+class _Rounded:
+    """The rows of a DataFrame, with each float (and each value of a vector) rounded to 9 digits,
+    as the Recorder rounds a float: the probabilities and curves of a model differ in their last
+    bits between platforms (the Linux server's values differ from the local ones). The Recorder
+    records it as it records a DataFrame."""
+
+    def __init__(self, frame):
+        def cell(x):
+            if isinstance(x, float):
+                return round(x, 9)
+            if type(x).__name__ == "DenseVector":
+                return type(x)([round(float(v), 9) for v in x])
+            return x
+
+        self.columns = frame.columns
+        self._rows = [tuple(cell(x) for x in row) for row in frame.collect()]
+
+    def collect(self):
+        return self._rows
+
+
 def classes(name):
     """The estimator and model classes of the case set `name`."""
     return [native_class(*spec) for spec in CLASSES[name]]
@@ -196,7 +217,7 @@ def _persistence_cases(rec, est, model, model_class, df, base, spec, has_summary
     """The cases of the save and load of `est` and `model`, and the fits of param maps."""
     param = spec["param"]
     getter = "get" + _cap(param)
-    rec("transform", lambda: model.transform(df))
+    rec("transform", lambda: _Rounded(model.transform(df)))
     shutil.rmtree(base, ignore_errors=True)
     rec("model_save", lambda: model.write().overwrite().save(base + "/model"))
     rec("model_save_again", lambda: model.save(base + "/model"))
@@ -205,7 +226,7 @@ def _persistence_cases(rec, est, model, model_class, df, base, spec, has_summary
     if has_summary:
         rec("loaded_hasSummary", lambda: loaded.hasSummary)
         rec("loaded_summary", lambda: loaded.summary())
-    rec("loaded_transform", lambda: loaded.transform(df))
+    rec("loaded_transform", lambda: _Rounded(loaded.transform(df)))
     rec("loaded_" + param, lambda: getattr(loaded, getter)())
     rec("est_save", lambda: est.write().overwrite().save(base + "/est"))
     loaded_est = type(est).load(base + "/est")
@@ -245,7 +266,7 @@ def _naive_bayes_live(rec, spark, base):
     rec("model_isSet_smoothing", lambda: model.isSet("smoothing"))
     rec("model_getThresholds", lambda: model.getThresholds())
     rec("model_hasSummary", lambda: hasattr(model, "hasSummary"))
-    rec("transform_df", lambda: model.transform(df))
+    rec("transform_df", lambda: _Rounded(model.transform(df)))
     rec("copy_smoothing", lambda: model.copy({model.smoothing: 3.0}).getSmoothing())
     rec("model_setThresholds", lambda: model.copy().setThresholds([0.5, 0.5]).getThresholds())
     rec("model_setPredictionCol", lambda: model.copy().setPredictionCol("p").getPredictionCol())
@@ -297,12 +318,12 @@ def _mlp_live(rec, spark, base):
     rec("summary_fMeasureByLabel_half", lambda: s.fMeasureByLabel(0.5))
     rec("summary_weightedFMeasure", lambda: s.weightedFMeasure())
     rec("summary_weightedFMeasure_keyword", lambda: s.weightedFMeasure(beta=0.5))
-    rec("summary_df_predictions", lambda: s.predictions.select("prediction"))
+    rec("summary_df_predictions", lambda: _Rounded(s.predictions.select("prediction")))
     e = model.evaluate(df)
     rec("evaluate_accuracy", lambda: e.accuracy)
     rec("evaluate_labels", lambda: e.labels)
     rec("evaluate_fMeasureByLabel", lambda: e.fMeasureByLabel(2.0))
-    rec("evaluate_df_predictions", lambda: e.predictions.select("prediction"))
+    rec("evaluate_df_predictions", lambda: _Rounded(e.predictions.select("prediction")))
     rec("evaluate_bad", lambda: model.evaluate(5))
     rec("transform_map", lambda: model.transform(df, {model.predictionCol: "q"}).columns)
     rec("copy_maxIter", lambda: model.copy({model.maxIter: 9}).getMaxIter())
@@ -368,6 +389,44 @@ def _unset_one_vs_rest():
     return classes("OneVsRest")[0]()
 
 
+def _native(name):
+    """The native class of PySpark's classification module of the name `name`."""
+    return native_class("pyspark.ml.connect.classification", name, "pyspark.ml.classification")
+
+
+def _submodel_cases(rec, prefix, model, classifier):
+    """The cases of the `models` of a fitted OneVsRestModel `model`, of the classifier `classifier`:
+    their classes, uids, label columns, params and summaries."""
+    rec(prefix + "models_len", lambda: len(model.models))
+    rec(prefix + "models_same_list", lambda: model.models is model.models)
+    rec(
+        prefix + "models_types",
+        lambda: [(type(s).__name__, type(s).__module__.split(".")[-1]) for s in model.models],
+    )
+    rec(
+        prefix + "models_uids_are_classifier",
+        lambda: [s.uid == classifier.uid for s in model.models],
+    )
+    rec(prefix + "models_labelCols", lambda: [s.getLabelCol() for s in model.models])
+    rec(prefix + "models_isSet_labelCol", lambda: [s.isSet("labelCol") for s in model.models])
+    rec(
+        prefix + "models_params",
+        lambda: [
+            sorted((p.name, repr(v)) for p, v in s.extractParamMap().items()) for s in model.models
+        ],
+    )
+    rec(
+        prefix + "models_hasSummary",
+        lambda: [getattr(s, "hasSummary", None) for s in model.models],
+    )
+    rec(
+        prefix + "models_summary_accuracy",
+        lambda: [
+            s.summary().accuracy for s in model.models if getattr(s, "hasSummary", False)
+        ],
+    )
+
+
 def _one_vs_rest_live(rec, spark, base):
     df = _multi_frame(spark)
     est = _estimator("OneVsRest")
@@ -378,6 +437,19 @@ def _one_vs_rest_live(rec, spark, base):
     rec("isSet_classifier", lambda: est.isSet("classifier"))
     model = est.fit(df)
     _misc_model_cases(rec, est, model)
+    _submodel_cases(rec, "ovr_linear_svc_", model, est.getClassifier())
+    for prefix, name, kwargs in [
+        ("ovr_nb_", "NaiveBayes", {"smoothing": 1.0}),
+        ("ovr_fm_", "FMClassifier", {"maxIter": 5, "seed": 1, "factorSize": 2}),
+        (
+            "ovr_mlp_",
+            "MultilayerPerceptronClassifier",
+            {"maxIter": 5, "layers": [2, 4, 2], "seed": 1},
+        ),
+    ]:
+        classifier = _native(name)(**kwargs)
+        fitted = _native("OneVsRest")(classifier=classifier).fit(df)
+        _submodel_cases(rec, prefix, fitted, classifier)
     rec("model_prefix", lambda: model.uid.split("_")[0])
     rec(
         "model_extract_classifier",
@@ -387,8 +459,8 @@ def _one_vs_rest_live(rec, spark, base):
     rec("model_isSet_parallelism", lambda: model.isSet("parallelism"))
     rec("model_transform_map", lambda: model.transform(df, {model.predictionCol: "q"}).columns)
     rec("transform_columns", lambda: model.transform(df).columns)
-    rec("transform", lambda: model.transform(df))
-    rec("fit_map", lambda: est.fit(df, {est.parallelism: 1}).transform(df))
+    rec("transform", lambda: _Rounded(model.transform(df)))
+    rec("fit_map", lambda: _Rounded(est.fit(df, {est.parallelism: 1}).transform(df)))
     rec(
         "fitMultiple",
         lambda: sorted(
