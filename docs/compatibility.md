@@ -721,9 +721,7 @@ In Python, `LogisticRegression` and its model follow the full API of `pyspark.ml
 with `coefficientMatrix`, `interceptVector`, `predictProbability`, the `summary` property and
 `hasSummary`. The fit of a LogisticRegression is followed by a `numClasses` request, which its
 training summary reads, as PySpark's does: the summary is the binary one of two classes or fewer,
-else the multinomial one. The remaining difference is that the message of an `AttributeError` on a native object names its class by the qualified name that
-PyO3 gives it, which CPython cuts at 50 characters, where PySpark names the class alone (the
-attribute exists or not, as in PySpark).
+else the multinomial one.
 
 ## Native Pipeline and CrossValidator: fit is not implemented
 
