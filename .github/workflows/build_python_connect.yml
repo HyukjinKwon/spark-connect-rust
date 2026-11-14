@@ -243,6 +243,7 @@ jobs:
             tests/test_remaining_regressors_e2e.py \
             tests/test_remaining_clustering_e2e.py \
             tests/test_ml_features_e2e.py \
+            tests/test_feature_api_e2e.py \
             tests/test_frequent_patterns_e2e.py \
             tests/test_als_e2e.py \
             tests/test_evaluators_e2e.py \

@@ -1068,7 +1068,12 @@ signatures and named mutating setters. The vendored `pyspark.ml.feature` module 
 
 The 20 estimators fit through Spark Connect's ML command and return session-scoped cached
 models; Python returns the shared native `MLModel`. The 18 transformers build lazy ML
-relations. Transformed DataFrames retain their fitted models and upstream input plans.
+relations, and in Python each is a typed class with PySpark's Params API (`params`, `getParam`,
+the getters and setters, `copy`, `extractParamMap`), `write`/`save`/`read`/`load` and
+`transform`, which applies a non-empty param map to a copy as PySpark does. `HashingTF.indexOf`
+fails at PySpark's JVM import, as the official one does over Spark Connect. Their outputCol
+default keeps the uid that a loaded stage was made of. The estimators and their typed models
+are still pending. Transformed DataFrames retain their fitted models and upstream input plans.
 `QuantileDiscretizer` returns a cached JVM `Bucketizer`; its Rust model wrapper is named
 `QuantileDiscretizerModel`. Training-only parameters are omitted from model transforms.
 Multi-column parameters, nested Bucketizer splits, vector-valued ElementwiseProduct weights,
