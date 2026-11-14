@@ -82,6 +82,8 @@ FULL = [
         ("feature", "VectorAssembler"),
         ("feature", "VectorSizeHint"),
         ("feature", "VectorSlicer"),
+        ("pipeline", "Pipeline"),
+        ("pipeline", "PipelineModel"),
     ]
 ]
 
