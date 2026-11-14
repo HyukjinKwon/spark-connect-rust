@@ -11,7 +11,7 @@ use spark_connect::expression::Expression;
 use spark_connect::ml::{
     attribute_relation, evaluated_summary, fetch, read, read_model, read_operator,
     summary_transform, training_summary, write_object, write_operator, Estimator, FetchArg, KMeans,
-    LinearSVC, LinearSVCModel, MlTarget, MlValue, MlVector, ObjectModel, OperatorType,
+    LinearSVC, LinearSVCModel, MlTarget, MlValue, MlVector, Model, ObjectModel, OperatorType,
     RandomForestClassifier, Transformer,
 };
 use spark_connect::{Column, DataFrame, SparkSession};
