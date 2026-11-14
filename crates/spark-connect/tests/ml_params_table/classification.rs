@@ -1,20 +1,27 @@
-//! The classification classes of the completeness test in `ml_params_table.rs`.
+//! The classification classes of the completeness test in `ml_params_table.rs`, by family: each
+//! family's classes move from `EXCLUDED` to `CONVERTED` within the family's own block.
+
+use spark_connect::ml::*;
 
 /// Golden classes converted in this area, with the `PARAM_NAMES` of their Rust type.
-pub const CONVERTED: &[(&str, &[&str])] = &[];
+pub const CONVERTED: &[(&str, &[&str])] = &[
+    // LogisticRegression and LinearSVC.
+    ("LinearSVC", LinearSVC::PARAM_NAMES),
+    ("LinearSVCModel", LinearSVCModel::PARAM_NAMES),
+    ("LogisticRegression", LogisticRegression::PARAM_NAMES),
+    (
+        "LogisticRegressionModel",
+        LogisticRegressionModel::PARAM_NAMES,
+    ),
+    // NaiveBayes, MultilayerPerceptron, FM and OneVsRest.
+    // The decision tree, random forest and gradient-boosted tree classifiers.
+];
 
 /// Golden classes of this area that are not converted, each with its reason.
 pub const EXCLUDED: &[(&str, &str)] = &[
-    ("DecisionTreeClassificationModel", "pending: classification"),
-    ("DecisionTreeClassifier", "pending: classification"),
+    // NaiveBayes, MultilayerPerceptron, FM and OneVsRest.
     ("FMClassificationModel", "pending: classification"),
     ("FMClassifier", "pending: classification"),
-    ("GBTClassificationModel", "pending: classification"),
-    ("GBTClassifier", "pending: classification"),
-    ("LinearSVC", "pending: classification"),
-    ("LinearSVCModel", "pending: classification"),
-    ("LogisticRegression", "pending: classification"),
-    ("LogisticRegressionModel", "pending: classification"),
     (
         "MultilayerPerceptronClassificationModel",
         "pending: classification",
@@ -24,6 +31,11 @@ pub const EXCLUDED: &[(&str, &str)] = &[
     ("NaiveBayesModel", "pending: classification"),
     ("OneVsRest", "pending: classification"),
     ("OneVsRestModel", "pending: classification"),
+    // The decision tree, random forest and gradient-boosted tree classifiers.
+    ("DecisionTreeClassificationModel", "pending: classification"),
+    ("DecisionTreeClassifier", "pending: classification"),
+    ("GBTClassificationModel", "pending: classification"),
+    ("GBTClassifier", "pending: classification"),
     ("RandomForestClassificationModel", "pending: classification"),
     ("RandomForestClassifier", "pending: classification"),
 ];
