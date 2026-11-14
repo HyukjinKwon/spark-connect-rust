@@ -24,7 +24,12 @@ _QUALIFIED = re.compile(r"'pyspark\.ml\.connect\.\w+\.(\w+)'")
 
 
 class RegressionRecorder(Recorder):
-    """The `Recorder` of the cases, which normalizes the module of a native class in an error."""
+    """The `Recorder` of the cases, which normalizes the module of a native class in an error, and
+    rounds the floats of DataFrames (`rounded`): the predictions and residuals of these models
+    differ in their last bits between the servers of platforms."""
+
+    def __init__(self, base=None):
+        super().__init__(base, rounded=True)
 
     def __call__(self, tag, f):
         super().__call__(tag, f)
@@ -138,10 +143,13 @@ def classes(name):
 def _regression_frame(spark):
     from pyspark.ml.linalg import Vectors
 
+    # The label is linear in the features, of a deterministic noise, so that the statistics of a
+    # summary (the standard errors, t-values and AIC) are of a fit that is not exact: of an exact
+    # fit, they are of rounding errors, which differ between platforms.
     rows = [
         (
             Vectors.dense([float(i), float(i % 3)]),
-            float(i * 2 + (i % 3) + 5),
+            float(i * 2 + (i % 3) + 5) + 0.25 * ((i * 7) % 5 - 2),
             float(1 + i % 2),
             1.0 if i % 4 else 0.0,
         )
