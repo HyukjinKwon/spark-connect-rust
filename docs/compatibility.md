@@ -279,7 +279,11 @@ full; the other native classes follow as they are completed. A class that follow
   the parent `undefined`, so `ParamGridBuilder().addGrid(LinearSVC.maxIter, ...)` builds.
   `MLWriter`s and `MLReader`s are `RemoteMLWriter` and `RemoteMLReader`, as over Spark Connect, of
   the attributes `shouldOverwrite` and `optionMap`, and the AttributeError of a missing attribute
-  names the class as PySpark's does.
+  names the class as PySpark's does. A missing attribute of the class itself
+  (`DecisionTreeRegressor.maxIter`) raises CPython's message of the type's full name, cut at 50
+  characters (`type object 'pyspark.ml.connect.regression.DecisionTreeRegresso' has no attribute
+  'maxIter'`, where PySpark's names `DecisionTreeRegressor`): the error of a missing class attribute
+  comes from the metaclass, which a PyO3 class cannot replace.
 - **PySpark's defaults of each instance**: the default `seed` is the `hash` of the name of the
   class, and the default `outputCol` the uid of the instance and `__output`; a fitted model has the
   defaults of its estimator, which PySpark's `_copyValues` copies to it (a seed of the name of the
