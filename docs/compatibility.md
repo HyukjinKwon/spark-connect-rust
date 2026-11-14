@@ -1069,9 +1069,11 @@ included), `setClassifier`, `fitMultiple` and `clear`, and its `fit` returns the
 as PySpark's. Its `models` are the typed submodels, each with the uid of the classifier, the
 binary label of its class as `labelCol`, the classifier's params, and its training summary. They
 are made from the fitted submodels without a request. The submodels of a classifier that has no
-typed Python class yet are generic models. The per-class fits send the same requests as PySpark's,
-except that PySpark also reads `numClasses` of each submodel after its fit, which this client does
-not send. The remaining differences from PySpark are these:
+typed Python class yet are generic models. A LogisticRegression submodel is a typed
+`LogisticRegressionModel`, with its training summary. The per-class fits send the requests of
+PySpark's, and PySpark's client also reads `numClasses` of each LogisticRegression submodel
+after its fit: this client makes the same reads, but after all the class fits rather than
+between them, so their order differs. The remaining differences from PySpark are these:
 
 - Saving and loading a `OneVsRest` or a `OneVsRestModel` is not available yet. `write` and `save`
   of `OneVsRest` raise `CONNECT_ML.UNSUPPORTED_EXCEPTION`, and `read` and `load` of it raise
