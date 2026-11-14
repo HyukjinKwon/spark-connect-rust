@@ -744,6 +744,11 @@ as PySpark builds them.
   as the native class of `pyspark.ml.connect` of its name where one loads, else as PySpark's
   class. An overwrite deletes the path by the ML helper first, as `RemoteMLWriter` does.
 
+To save native stages, use the native `Pipeline`. The vendored `pyspark.ml.Pipeline` fits and
+transforms them, but its save raises the `ValueError` of a stage that is not `MLWritable`: the
+native classes are not subclasses of `pyspark.ml.util.MLWritable`, a plain class (not an ABC)
+that they cannot be registered with.
+
 `spark_connect::ml::CrossValidator` and `pyspark.ml.connect.CrossValidator` do not fit yet:
 - their `fit` raises `NOT_IMPLEMENTED` (`PySparkNotImplementedError` in Python), naming
   `CrossValidator.fit`, before any request is sent;
