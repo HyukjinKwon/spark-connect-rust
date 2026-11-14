@@ -291,16 +291,21 @@ def _kmeans_live(rec, model, df):
     rec("transform_map", lambda: model.transform(df, {model.predictionCol: "q"}).columns)
 
 
-def model_cases(rec, est, model):
-    """The cases of any fitted model `model` of the estimator `est`: its uid, its params and its
-    description."""
+def model_cases(rec, est, model, df, class_param="maxIter", value=3):
+    """The cases of any fitted model `model` of the estimator `est` of the DataFrame `df`: its uid,
+    its params and its description. A fit of a map of the Param `class_param` of the class (of
+    the parent "undefined") to `value` ignores it, as a Param of another parent."""
     from pyspark.ml.base import Model, Transformer
 
     rec("model_uid_is_estimator_uid", lambda: model.uid == est.uid)
     rec("isinstance_model", lambda: (isinstance(model, Model), isinstance(model, Transformer)))
     rec("model_no_attribute", lambda: model.fooBarBaz)
     rec("model_class", lambda: (type(model).__name__, type(model).__module__.split(".")[-1]))
-    rec("fit_class_param", lambda: est.fit(model_cases.df, {type(est).maxIter: 3}).getMaxIter())
+    getter = "get" + class_param[0].upper() + class_param[1:]
+    rec(
+        "fit_class_param",
+        lambda: getattr(est.fit(df, {getattr(type(est), class_param): value}), getter)(),
+    )
     rec("model_explainParams", lambda: model.explainParams())
     rec(
         "model_extract",
@@ -359,8 +364,7 @@ def live_cases(name, spark, base):
         df = _kmeans_frame(spark)
         est = estimator(k=2, maxIter=10)
     model = est.fit(df)
-    model_cases.df = df
-    model_cases(rec, est, model)
+    model_cases(rec, est, model, df)
     if name == "LinearSVC":
         _linear_svc_live(rec, model, df)
     else:
