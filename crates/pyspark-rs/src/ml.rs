@@ -44,6 +44,7 @@ pub use evaluation::{
 };
 
 pub(crate) mod feature;
+pub(crate) mod feature_api;
 pub(crate) mod fpm;
 
 pub(crate) mod recommendation;
