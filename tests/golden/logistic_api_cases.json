@@ -94,8 +94,8 @@
     ]
    ],
    "fit_class_param": [
-    "AttributeError",
-    "'function' object has no attribute 'df'"
+    "ok",
+    "5"
    ],
    "fit_list": [
     "ok",

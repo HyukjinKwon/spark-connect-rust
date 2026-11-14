@@ -213,7 +213,7 @@ def live_cases(name, spark, base):
     df = _binary_frame(spark)
     est = estimator(maxIter=5, regParam=0.01)
     model = est.fit(df)
-    model_cases(rec, est, model)
+    model_cases(rec, est, model, df)
     _binary_live(rec, model, df)
     # A fit with thresholds sends them, and the model's training summary is of its class.
     with_thresholds = estimator(maxIter=5, thresholds=[0.4, 0.6]).fit(df)
