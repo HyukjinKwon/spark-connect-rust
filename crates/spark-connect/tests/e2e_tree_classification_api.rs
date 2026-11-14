@@ -11,7 +11,8 @@ mod tree_classification;
 
 use common::live_session;
 use serde_json::{json, Value};
-use spark_connect::column::col;
+use spark_connect::column::{col, lit_string};
+use spark_connect::expression::Expression;
 use spark_connect::ml::{
     BinaryClassificationSummary, ClassificationModel, ClassificationSummary,
     DecisionTreeClassificationModel, DecisionTreeClassifier, DecisionTreeModel, Estimator,
@@ -20,6 +21,8 @@ use spark_connect::ml::{
     RandomForestSummary, RandomForestTrainingSummary, TrainingSummary, Transformer,
     TreeEnsembleModel,
 };
+use spark_connect::row::{Row, Value as RowValue};
+use spark_connect::Column;
 use spark_connect::DataFrame;
 use tree_classification::{assert_close, dataset, expected, vector_json};
 
@@ -102,26 +105,114 @@ fn column(frame: DataFrame, name: &str) -> Vec<f64> {
         .collect()
 }
 
-/// The weighted fraction of the rows of `frame` whose label is its prediction, as the summary's
-/// accuracy is (the weight column of the golden datasets).
-fn accuracy_of(frame: DataFrame) -> f64 {
-    let labels = column(frame.clone(), "label");
-    let predictions = column(frame.clone(), "prediction");
-    let weights = column(frame, "weight");
-    let total: f64 = weights.iter().sum();
-    let right: f64 = labels
+/// A row as numbers, in order: each number of the row, and the numbers of each list.
+fn numbers(row: &Row) -> Vec<f64> {
+    fn push(value: &RowValue, out: &mut Vec<f64>) {
+        match value {
+            RowValue::Double(v) => out.push(*v),
+            RowValue::Float(v) => out.push(f64::from(*v)),
+            RowValue::Integer(v) => out.push(f64::from(*v)),
+            RowValue::Long(v) => out.push(*v as f64),
+            RowValue::List(items) => items.iter().for_each(|item| push(item, out)),
+            other => panic!("not a number: {other:?}"),
+        }
+    }
+    let mut out = Vec::new();
+    row.values().iter().for_each(|value| push(value, &mut out));
+    out
+}
+
+/// The numbers of a golden JSON value: its numbers, and the values of its vectors.
+fn flatten(value: &Value, out: &mut Vec<f64>) {
+    match value {
+        Value::Number(n) => out.push(n.as_f64().unwrap()),
+        Value::Array(items) => items.iter().for_each(|item| flatten(item, out)),
+        Value::Object(_) => {
+            if let Some(values) = value.get("values") {
+                flatten(values, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Sort rows by their values, rounded to 1e-9, so that rows that agree compare in the same order.
+fn sort_rows(rows: &mut [Vec<f64>]) {
+    rows.sort_by_key(|row| {
+        row.iter()
+            .map(|x| (x * 1e9).round() as i64)
+            .collect::<Vec<_>>()
+    });
+}
+
+/// The rows of `frame` as sorted numbers.
+fn sorted_rows(frame: DataFrame) -> Vec<Vec<f64>> {
+    let mut rows: Vec<Vec<f64>> = frame.collect().unwrap().iter().map(numbers).collect();
+    sort_rows(&mut rows);
+    rows
+}
+
+/// The rows of a golden DataFrame (`{rows, schema}`) as sorted numbers, of its cells at `keep`
+/// (all of them when None).
+fn golden_rows(frame: &Value, keep: Option<&[usize]>) -> Vec<Vec<f64>> {
+    let mut rows: Vec<Vec<f64>> = frame["rows"]
+        .as_array()
+        .unwrap()
         .iter()
-        .zip(&predictions)
-        .zip(&weights)
-        .filter(|((label, prediction), _)| label == prediction)
-        .map(|(_, weight)| weight)
-        .sum();
-    right / total
+        .map(|row| {
+            let mut out = Vec::new();
+            for (i, cell) in row.as_array().unwrap().iter().enumerate() {
+                if keep.is_none_or(|keep| keep.contains(&i)) {
+                    flatten(cell, &mut out);
+                }
+            }
+            out
+        })
+        .collect();
+    sort_rows(&mut rows);
+    rows
+}
+
+/// The rows of a training or evaluation's predictions, as the golden's (label, weight, raw
+/// prediction, probability, prediction; the features are not compared).
+fn predictions_rows(frame: DataFrame) -> Vec<Vec<f64>> {
+    sorted_rows(frame.select([
+        col("label"),
+        col("weight"),
+        Column::new(Expression::function(
+            "vector_to_array",
+            vec![
+                col("rawPrediction").expression().clone(),
+                lit_string("float64").expression().clone(),
+            ],
+        )),
+        Column::new(Expression::function(
+            "vector_to_array",
+            vec![
+                col("probability").expression().clone(),
+                lit_string("float64").expression().clone(),
+            ],
+        )),
+        col("prediction"),
+    ]))
+}
+
+/// Assert that the rows of `actual` are the rows of `expected`, within 1e-9 relative.
+fn assert_rows(actual: Vec<Vec<f64>>, expected: Vec<Vec<f64>>, what: &str) {
+    assert_eq!(actual.len(), expected.len(), "{what}: rows");
+    for (i, (a, e)) in actual.iter().zip(&expected).enumerate() {
+        assert_eq!(a.len(), e.len(), "{what}[{i}]: width");
+        for (x, y) in a.iter().zip(e) {
+            assert!(
+                (x - y).abs() <= 1e-9 * y.abs().max(1.0),
+                "{what}[{i}]: {x} is not {y}"
+            );
+        }
+    }
 }
 
 /// The members of a classification summary (`_ClassificationSummary`), against the golden
-/// summary `key`, for the members that do not depend on the fit's partitioning. The DataFrames
-/// are compared by their row count.
+/// summary `key`, the predictions as rows.
 fn check_classification<S: ClassificationSummary>(s: &S, golden: &Value, key: &str) {
     let section = "summaries";
     let c = |member: &str, actual: Value| check(golden, section, key, member, actual);
@@ -129,18 +220,51 @@ fn check_classification<S: ClassificationSummary>(s: &S, golden: &Value, key: &s
     c("predictionCol", json!(s.prediction_col().unwrap()));
     c("weightCol", json!(s.weight_col().unwrap()));
     c("labels", json!(s.labels().unwrap()));
-    let accuracy = s.accuracy().unwrap();
-    assert!((accuracy - accuracy_of(s.predictions().unwrap())).abs() < 1e-9);
-    let classes = s.labels().unwrap().len();
-    assert_eq!(s.precision_by_label().unwrap().len(), classes);
-    assert_eq!(s.recall_by_label().unwrap().len(), classes);
-    assert!(s.weighted_f_measure(1.0).unwrap().is_finite());
-    let rows = s.predictions().unwrap().collect().unwrap().len();
-    let want = expected(golden, section, key, "predictions")["rows"]
-        .as_array()
-        .unwrap()
-        .len();
-    assert_eq!(rows, want, "{key}.predictions rows");
+    c("accuracy", json!(s.accuracy().unwrap()));
+    c("precisionByLabel", json!(s.precision_by_label().unwrap()));
+    c("recallByLabel", json!(s.recall_by_label().unwrap()));
+    c(
+        "truePositiveRateByLabel",
+        json!(s.true_positive_rate_by_label().unwrap()),
+    );
+    c(
+        "falsePositiveRateByLabel",
+        json!(s.false_positive_rate_by_label().unwrap()),
+    );
+    c(
+        "fMeasureByLabel-0.5",
+        json!(s.f_measure_by_label(0.5).unwrap()),
+    );
+    c(
+        "fMeasureByLabel-1.0",
+        json!(s.f_measure_by_label(1.0).unwrap()),
+    );
+    c(
+        "weightedFMeasure-0.5",
+        json!(s.weighted_f_measure(0.5).unwrap()),
+    );
+    c(
+        "weightedFMeasure-1.0",
+        json!(s.weighted_f_measure(1.0).unwrap()),
+    );
+    c("weightedPrecision", json!(s.weighted_precision().unwrap()));
+    c("weightedRecall", json!(s.weighted_recall().unwrap()));
+    c(
+        "weightedTruePositiveRate",
+        json!(s.weighted_true_positive_rate().unwrap()),
+    );
+    c(
+        "weightedFalsePositiveRate",
+        json!(s.weighted_false_positive_rate().unwrap()),
+    );
+    assert_rows(
+        predictions_rows(s.predictions().unwrap()),
+        golden_rows(
+            expected(golden, section, key, "predictions"),
+            Some(&[0, 1, 3, 4, 5]),
+        ),
+        &format!("{key}.predictions"),
+    );
 }
 
 /// The members of a binary classification summary, against the golden summary `key`.
@@ -153,8 +277,13 @@ fn check_binary<S: BinaryClassificationSummary>(s: &S, golden: &Value, key: &str
         "scoreCol",
         json!(s.score_col().unwrap()),
     );
-    let auc = s.area_under_roc().unwrap();
-    assert!((0.0..=1.0).contains(&auc), "{key}.areaUnderROC {auc}");
+    check(
+        golden,
+        section,
+        key,
+        "areaUnderROC",
+        json!(s.area_under_roc().unwrap()),
+    );
     let curves = [
         ("roc", s.roc().unwrap()),
         ("pr", s.pr().unwrap()),
@@ -162,9 +291,12 @@ fn check_binary<S: BinaryClassificationSummary>(s: &S, golden: &Value, key: &str
         ("precisionByThreshold", s.precision_by_threshold().unwrap()),
         ("recallByThreshold", s.recall_by_threshold().unwrap()),
     ];
-    // The curves depend on the forest's predictions, which vary with the server's partitioning.
     for (member, frame) in curves {
-        assert!(!frame.collect().unwrap().is_empty(), "{key}.{member}");
+        assert_rows(
+            sorted_rows(frame),
+            golden_rows(expected(golden, section, key, member), None),
+            &format!("{key}.{member}"),
+        );
     }
 }
 
@@ -289,22 +421,13 @@ fn decision_tree_model_and_estimator_round_trip_through_save_and_load() {
     );
 }
 
-/// The number of values of a vector.
-fn size_of(vector: &MlVector) -> usize {
-    match vector {
-        MlVector::Dense(values) => values.len(),
-        MlVector::Sparse { size, .. } => *size as usize,
-    }
-}
-
-/// A random forest of three trees with the golden's seed and weight column, and every feature
-/// considered at each split, so that the forest does not depend on the server's partitioning.
+/// A random forest of three trees with the golden's seed and weight column, and the golden's
+/// default feature subset, "auto". Its training dataset is the golden's one partition.
 fn forest() -> RandomForestClassifier {
     RandomForestClassifier::new()
         .set_num_trees(3)
         .set_max_depth(3)
         .set_seed(42)
-        .set_feature_subset_strategy("all")
         .set_weight_col("weight")
 }
 
@@ -322,33 +445,75 @@ fn random_forest_binary_model_matches_pyspark() {
     c("numClasses", json!(model.num_classes().unwrap()));
     c("numFeatures", json!(model.num_features().unwrap()));
     c("getNumTrees", json!(model.get_num_trees().unwrap()));
+    c("totalNumNodes", json!(model.total_num_nodes().unwrap()));
     c("treeWeights", json!(model.tree_weights().unwrap()));
+    c(
+        "featureImportances",
+        vector_json(&model.feature_importances().unwrap()),
+    );
+    assert_close(
+        &json!(without_uid(&model.to_debug_string().unwrap())),
+        &json!(without_uid(
+            expected(&g, "models", key, "toDebugString")
+                .as_str()
+                .unwrap()
+        )),
+        "RandomForestClassifier.binary.toDebugString",
+    );
     c(
         "supportedFeatureSubsetStrategies",
         json!(model.supported_feature_subset_strategies()),
     );
     c("supportedImpurities", json!(model.supported_impurities()));
-
-    // The forest is the sum of its trees, and each prediction is the transform's.
-    let trees = model.trees().unwrap();
-    assert_eq!(trees.len(), 3);
-    let nodes: i32 = trees.iter().map(|t| t.num_nodes().unwrap()).sum();
-    assert_eq!(model.total_num_nodes().unwrap(), nodes);
+    for (name, features) in probes() {
+        c(
+            &format!("predict-{name}"),
+            json!(model.predict(&features).unwrap()),
+        );
+        c(
+            &format!("predictLeaf-{name}"),
+            vector_json(&model.predict_leaf(&features).unwrap()),
+        );
+        c(
+            &format!("predictRaw-{name}"),
+            vector_json(&model.predict_raw(&features).unwrap()),
+        );
+        c(
+            &format!("predictProbability-{name}"),
+            vector_json(&model.predict_probability(&features).unwrap()),
+        );
+    }
+    // The transform of the eval set predicts what predict does on each of its rows.
     let predicted = column(model.transform(&eval).unwrap(), "prediction");
     for (i, features) in features_of(&g, "binary_eval").iter().enumerate() {
         assert_eq!(model.predict(features).unwrap(), predicted[i], "row {i}");
-        let MlVector::Dense(values) = model.predict_probability(features).unwrap() else {
-            panic!("a dense probability")
-        };
-        assert!((values.iter().sum::<f64>() - 1.0).abs() < 1e-9, "row {i}");
-        let leaf = model.predict_leaf(features).unwrap();
-        assert_eq!(size_of(&leaf), 3, "a leaf of each tree, row {i}");
     }
+
+    // The first of the three trees is a decision tree model of its own.
+    let trees = model.trees().unwrap();
+    assert_eq!(
+        trees.len(),
+        expected(&g, "models", key, "trees")
+            .as_array()
+            .unwrap()
+            .len()
+    );
+    let tree_key = "RandomForestClassifier.binary.trees[0]";
+    let t = |member: &str, actual: Value| check(&g, "models", tree_key, member, actual);
+    t("depth", json!(trees[0].depth().unwrap()));
+    t("numNodes", json!(trees[0].num_nodes().unwrap()));
+    t("numClasses", json!(trees[0].num_classes().unwrap()));
+    t("numFeatures", json!(trees[0].num_features().unwrap()));
+    t(
+        "featureImportances",
+        vector_json(&trees[0].feature_importances().unwrap()),
+    );
     for (name, features) in probes() {
-        assert!(model.predict(&features).unwrap().is_finite(), "{name}");
+        t(
+            &format!("predict-{name}"),
+            json!(trees[0].predict(&features).unwrap()),
+        );
     }
-    assert_eq!(trees[0].num_classes().unwrap(), 2);
-    assert_eq!(trees[0].num_features().unwrap(), 2);
 
     let summary = match model.summary().unwrap() {
         RandomForestTrainingSummary::Binary(summary) => summary,
@@ -382,14 +547,39 @@ fn random_forest_multiclass_model_matches_pyspark() {
     let key = "RandomForestClassifier.multiclass";
     let c = |member: &str, actual: Value| check(&g, "models", key, member, actual);
     c("numClasses", json!(model.num_classes().unwrap()));
+    c("numFeatures", json!(model.num_features().unwrap()));
     c("getNumTrees", json!(model.get_num_trees().unwrap()));
+    c("totalNumNodes", json!(model.total_num_nodes().unwrap()));
     c("treeWeights", json!(model.tree_weights().unwrap()));
+    c(
+        "featureImportances",
+        vector_json(&model.feature_importances().unwrap()),
+    );
+    assert_close(
+        &json!(without_uid(&model.to_debug_string().unwrap())),
+        &json!(without_uid(
+            expected(&g, "models", key, "toDebugString")
+                .as_str()
+                .unwrap()
+        )),
+        "RandomForestClassifier.multiclass.toDebugString",
+    );
     for (name, features) in probes() {
-        assert!(model.predict(&features).unwrap().is_finite(), "{name}");
-        assert_eq!(
-            size_of(&model.predict_raw(&features).unwrap()),
-            3,
-            "a score of each class"
+        c(
+            &format!("predict-{name}"),
+            json!(model.predict(&features).unwrap()),
+        );
+        c(
+            &format!("predictLeaf-{name}"),
+            vector_json(&model.predict_leaf(&features).unwrap()),
+        );
+        c(
+            &format!("predictRaw-{name}"),
+            vector_json(&model.predict_raw(&features).unwrap()),
+        );
+        c(
+            &format!("predictProbability-{name}"),
+            vector_json(&model.predict_probability(&features).unwrap()),
         );
     }
 
@@ -420,9 +610,15 @@ fn random_forest_model_loads_without_a_training_summary() {
     let loaded = RandomForestClassificationModel::load(&s, &path).unwrap();
     assert!(!loaded.has_summary());
     assert!(loaded.summary().is_err());
-    assert_eq!(
-        loaded.predict(&MlVector::Dense(vec![0.5, 1.5])).unwrap(),
-        model.predict(&MlVector::Dense(vec![0.5, 1.5])).unwrap(),
+    assert_close(
+        &json!(loaded.predict(&MlVector::Dense(vec![0.5, 1.5])).unwrap()),
+        expected(
+            &g,
+            "models",
+            "RandomForestClassifier.binary",
+            "predict-dense",
+        ),
+        "loaded predict",
     );
 }
 

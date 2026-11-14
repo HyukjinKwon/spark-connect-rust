@@ -55,7 +55,7 @@ pub fn dataset(session: &SparkSession, golden: &Value, name: &str) -> DataFrame 
         "SELECT id, label, weight, features FROM VALUES {} AS t(id, label, weight, features)",
         values.join(", ")
     );
-    session.sql(&sql).unwrap().with_column(
+    session.sql(&sql).unwrap().coalesce(1).with_column(
         "features",
         Column::new(Expression::function(
             "array_to_vector",
