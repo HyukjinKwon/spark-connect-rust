@@ -1073,8 +1073,14 @@ def test_ml_connect_params_argument_of_fit_transform_and_evaluate_as_pyspark(ml_
     model_base = _relation(model.transform(df)).ml_relation.transform
     assert transformed(model, None) == model_base
     assert transformed(model, {}) == model_base
+    # A native transformer applies a non-empty map to a copy of itself, as PySpark's transform
+    # does (see test_feature_api_offline for its members); a model still refuses it.
+    assert transformed(assembler, {assembler.outputCol: "o"}) == _relation(
+        assembler.copy({assembler.outputCol: "o"}).transform(df)
+    ).ml_relation.transform
     for transformer in [assembler, model]:
-        refused(lambda: transformer.transform(df, {"outputCol": "o"}), _NO_PARAM_MAP)
+        if transformer is model:
+            refused(lambda: transformer.transform(df, {"outputCol": "o"}), _NO_PARAM_MAP)
         for value in [[], ("a",), "x", 3]:
             refused(lambda: transformer.transform(df, value), map_message.format(type(value)))
 
