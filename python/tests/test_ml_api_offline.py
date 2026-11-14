@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -165,8 +166,15 @@ from pyspark.ml.param import Params
 print(isinstance(module.LinearSVC(), Estimator), isinstance(module.LinearSVC(), Params),
       issubclass(module.LinearSVCModel, Model))
 """
+    # Of the path of this process (ours or official PySpark) and a directory without a pyspark:
+    # the directory of the tests' cwd would put the drop-in first on the path of an official run.
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
     out = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, env=dict(os.environ)
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tempfile.gettempdir(),
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.split() == ["True", "True", "True"]
