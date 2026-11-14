@@ -39,6 +39,37 @@ def frames(session):
     return {name: dataset(session, name) for name in FIXTURE["datasets"]}
 
 
+def test_helper_calls_assert_the_active_session_of_their_thread(session):
+    # As PySpark's invoke_helper_relation, which takes the active session of the thread
+    # (SparkSession.getActiveSession()) before it serializes the arguments: in a thread that has
+    # none, a helper call raises the AssertionError of its `assert`, also of a DataFrame.
+    import threading
+
+    stat = api()
+    frame = session.range(1)
+    calls = [
+        lambda: stat.ChiSquareTest.test(frame, "features", "label"),
+        lambda: stat.Correlation.corr(frame, "features"),
+        lambda: stat.KolmogorovSmirnovTest.test(frame, "sample", "norm"),
+        lambda: stat.ChiSquareTest.test(frame, object(), "label"),
+    ]
+    outcome = []
+
+    def run():
+        for call in calls:
+            try:
+                call()
+            except BaseException as e:  # noqa: BLE001 - the error is the outcome
+                outcome.append(type(e).__name__)
+            else:
+                outcome.append(None)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join(60)
+    assert outcome == ["AssertionError"] * len(calls)
+
+
 @pytest.mark.parametrize(
     "case", [case for case in ARGUMENTS["cases"] if "sent" in case], ids=argument_case_id
 )
