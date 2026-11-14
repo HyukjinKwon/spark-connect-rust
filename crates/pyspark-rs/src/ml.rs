@@ -20,8 +20,8 @@ use spark_connect::ml::{
     DecisionTreeRegressor, Estimator, Evaluator, FMClassifier, FMRegressor, GBTClassifier,
     GBTRegressor, GaussianMixture, GeneralizedLinearRegression, IsotonicRegression, KMeans,
     LinearRegression, LinearSVC, LogisticRegression, MlMatrix, MlVector, Model,
-    MultilayerPerceptronClassifier, NaiveBayes, OneVsRest, Params, Pipeline,
-    PowerIterationClustering, RandomForestClassifier, RandomForestRegressor, Transformer, LDA,
+    MultilayerPerceptronClassifier, NaiveBayes, OneVsRest, Params, PowerIterationClustering,
+    RandomForestClassifier, RandomForestRegressor, Transformer, LDA,
 };
 use spark_connect::DataFrame;
 
@@ -35,6 +35,7 @@ pub(crate) mod params_api;
 // The typed models and summaries of each family, in the files of the areas that complete them.
 pub(crate) mod classification_api;
 pub(crate) mod clustering_api;
+pub(crate) mod pipeline_api;
 pub(crate) mod regression_api;
 
 pub(crate) mod evaluation;
@@ -5213,58 +5214,6 @@ impl PyBisectingKMeans {
     }
 }
 
-/// Pipeline estimator (chains stages by name).
-const PIPELINE_PARAMS: &[(&str, Kind)] = &[("stages", Kind::StrList)];
-
-#[pyclass(name = "Pipeline", module = "pyspark.ml.connect.pipeline")]
-pub struct PyPipeline {
-    inner: Pipeline,
-    unsendable: Vec<&'static str>,
-}
-
-#[pymethods]
-impl PyPipeline {
-    #[new]
-    #[pyo3(signature = (*args, **kwargs), text_signature = "(*, stages=None)")]
-    fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
-        let mut this = Self {
-            inner: Pipeline::new(),
-            unsendable: Vec::new(),
-        };
-        init_params(&mut this, "Pipeline", &[], PIPELINE_PARAMS, args, kwargs)?;
-        Ok(this)
-    }
-    #[pyo3(
-        name = "setParams",
-        signature = (*args, **kwargs),
-        text_signature = "(self, *, stages=None)"
-    )]
-    fn set_params<'py>(
-        slf: Bound<'py, Self>,
-        args: &Bound<'py, PyTuple>,
-        kwargs: Option<&Bound<'py, PyDict>>,
-    ) -> PyResult<Bound<'py, Self>> {
-        set_params_of(slf, "Pipeline", PIPELINE_PARAMS, args, kwargs)
-    }
-    #[pyo3(name = "setStages")]
-    fn set_stages<'py>(
-        slf: Bound<'py, Self>,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<Bound<'py, Self>> {
-        set_param(slf, "stages", Kind::StrList, value)
-    }
-    #[pyo3(signature = (dataset, params=None))]
-    fn fit(
-        slf: &Bound<'_, Self>,
-        dataset: &Bound<'_, PyAny>,
-        params: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Fitted<PyMLModel>> {
-        fit_with(slf, dataset, params, || {
-            fit_unimplemented(slf, dataset, "Pipeline.fit")
-        })
-    }
-}
-
 /// CrossValidator (k-fold tuning).
 const CROSS_VALIDATOR_PARAMS: &[(&str, Kind)] = &[
     ("numFolds", Kind::Int),
@@ -5368,6 +5317,5 @@ native!(
     PyGaussianMixture => GaussianMixture,
     PyKMeans => KMeans,
     PyBisectingKMeans => BisectingKMeans,
-    PyPipeline => Pipeline,
     PyCrossValidator => CrossValidator,
 );

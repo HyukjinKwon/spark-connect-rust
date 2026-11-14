@@ -1046,8 +1046,9 @@ def test_ml_connect_params_argument_of_fit_transform_and_evaluate_as_pyspark(ml_
     assert fitted(logistic, None) == base
 
     # The fits of the classes that are not fitted: None and {} raise NOT_IMPLEMENTED, the error
-    # of their fit, and any other value its TypeError first.
-    for estimator in [connect.Pipeline(), connect.CrossValidator()]:
+    # of their fit, and any other value its TypeError first. (The Pipeline fits, as PySpark's: see
+    # the cases of test_ml_api_offline.py.)
+    for estimator in [connect.CrossValidator()]:
         for params in [(), (None,), ({},)]:
             with pytest.raises(PySparkNotImplementedError):
                 estimator.fit(df, *params)
@@ -1177,30 +1178,24 @@ def test_ml_connect_fit_of_a_list_of_param_maps_as_pyspark(ml_mock):
             estimator.fit(pdf, [{}])
 
 
-def test_ml_pipeline_and_cross_validator_fit_is_not_implemented(ml_mock):
-    # The native Pipeline and CrossValidator keep their params as their setters set them, and
-    # their fit raises PySpark's NOT_IMPLEMENTED before any request: the server cannot fit the
-    # stage names, nor the estimator and evaluator that the CrossValidator does not hold, so no
-    # model is returned.
+def test_ml_cross_validator_fit_is_not_implemented(ml_mock):
+    # The native CrossValidator keeps its params as its setters set them, and its fit raises
+    # PySpark's NOT_IMPLEMENTED before any request: the server cannot fit the estimator and the
+    # evaluator that it does not hold, so no model is returned.
     from pyspark.errors import PySparkNotImplementedError
-    from pyspark.ml.connect import CrossValidator, Pipeline
+    from pyspark.ml.connect import CrossValidator
 
     spark, service = ml_mock
     df = spark.range(1)
-    pipeline = Pipeline()
-    assert pipeline.setStages(value=["a", "b"]) is pipeline
     cv = CrossValidator()
     assert cv.setNumFolds(value=5) is cv
     assert cv.setParallelism(value=2) is cv
     assert cv.setSeed(value=7) is cv
     for estimator, feature in [
-        (pipeline, "Pipeline.fit"),
         (cv, "CrossValidator.fit"),
-        (Pipeline(stages=["a"]), "Pipeline.fit"),
         (CrossValidator(numFolds=2, seed=1), "CrossValidator.fit"),
-        # The params that PySpark's serialization cannot send, or sends as an empty list, do not
-        # raise their errors first: the fit raises NOT_IMPLEMENTED for every param state.
-        (Pipeline(stages=[]), "Pipeline.fit"),
+        # The params that PySpark's serialization cannot send do not raise their errors first:
+        # the fit raises NOT_IMPLEMENTED for every param state.
         (CrossValidator(seed=2**64), "CrossValidator.fit"),
         (CrossValidator(seed=2**64, numFolds=2), "CrossValidator.fit"),
         (CrossValidator(numFolds=2**70), "CrossValidator.fit"),
@@ -1318,7 +1313,6 @@ _NATIVE_PARAMS = {
     'MultilabelClassificationEvaluator': dict(predictionCol='str', labelCol='str', metricName='str', metricLabel='float'),
     'ClusteringEvaluator': dict(predictionCol='str', featuresCol='str', metricName='str', distanceMeasure='str', weightCol='str'),
     'RankingEvaluator': dict(predictionCol='str', labelCol='str', metricName='str', k='int'),
-    "Pipeline": dict(stages="str_list"),
     "CrossValidator": dict(numFolds="int", parallelism="int", seed="int"),
 }
 
@@ -1369,7 +1363,7 @@ _NATIVE_REJECTED = {
 
 # The native classes whose fit raises NOT_IMPLEMENTED without a request, so that no request
 # carries their params.
-_NOT_FITTABLE = ("Pipeline", "CrossValidator")
+_NOT_FITTABLE = ("CrossValidator",)
 
 
 def _native_request(spark, service, obj, models):
@@ -1526,7 +1520,7 @@ def test_ml_connect_unsendable_ints_none_and_uids_as_pyspark(ml_mock):
     # As PySpark: an int beyond a long is taken by the constructor and the setter, and the
     # next fit raises the VALUE_NOT_BETWEEN of PySpark's serialization of the params, before
     # any request, until the param is set again. A CrossValidator raises NOT_IMPLEMENTED instead,
-    # see test_ml_pipeline_and_cross_validator_fit_is_not_implemented. None is sent as a null,
+    # see test_ml_cross_validator_fit_is_not_implemented. None is sent as a null,
     # as PySpark sends it.
     # The uid of every native class is the name of its class and 12 hex digits, as PySpark's.
     import re
@@ -1595,7 +1589,7 @@ def test_ml_connect_setters_run_while_a_fit_or_an_evaluate_waits_as_pyspark(ml_m
     # Kept alive, so that the release of no model reaches the server after a reset.
     models = []
     for name, params in _NATIVE_PARAMS.items():
-        if name in ("Pipeline", "CrossValidator", "VectorAssembler"):
+        if name in ("CrossValidator", "VectorAssembler"):
             continue
         param = next(param for param, kind in params.items() if kind == "str")
         setter = "set" + param[0].upper() + param[1:]

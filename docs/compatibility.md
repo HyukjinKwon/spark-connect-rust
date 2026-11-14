@@ -262,8 +262,8 @@ classes to build on:
 
 The native Python classes of `pyspark.ml.connect` follow the API of `pyspark.ml` 4.3.0 over Spark
 Connect, class by class. `LinearSVC` (with `LinearSVCModel`, `LinearSVCSummary` and
-`LinearSVCTrainingSummary`) and `KMeans` (with `KMeansModel` and `KMeansSummary`) follow it in
-full; the other native classes follow as they are completed. A class that follows it has:
+`LinearSVCTrainingSummary`), `KMeans` (with `KMeansModel` and `KMeansSummary`), and `Pipeline`
+and `PipelineModel` follow it in full. The other native classes follow as they are completed. A class that follows it has:
 
 - **The Params API of `pyspark.ml.param.Params`**: `params`, `getParam`, `hasParam`, `isSet`,
   `isDefined`, `hasDefault`, `getOrDefault`, `explainParam(s)`, `extractParamMap`, `set`, `clear`
@@ -723,20 +723,33 @@ rather than a Python object, `fit_multiple` returns a `Vec` rather than an itera
 is `load`, with no reader object. The summary's DataFrames are built on the training DataFrame,
 as PySpark builds them.
 
-## Native Pipeline and CrossValidator: fit is not implemented
+## Native Pipeline and PipelineModel
 
-`spark_connect::ml::Pipeline` and `spark_connect::ml::CrossValidator`, and their Python
-classes `pyspark.ml.connect.Pipeline` and `pyspark.ml.connect.CrossValidator`, do not fit.
-Their `fit` raises `NOT_IMPLEMENTED` (`PySparkNotImplementedError` in Python), naming
-`Pipeline.fit` or `CrossValidator.fit`, before any request is sent, and returns no model.
-The Connect ML protocol cannot run either one: the native Pipeline holds stage names, which
-the server cannot fit, and it has no pipeline model to transform; the native CrossValidator
-holds its numeric params only, without the estimator, evaluator or param grid. Their
-constructors and setters still set the params, as before.
+`pyspark.ml.connect.Pipeline` and `pyspark.ml.connect.PipelineModel` are PySpark's `Pipeline` and
+`PipelineModel` of `pyspark.ml.pipeline`, natively, as PySpark 4.3.0 has them over Spark Connect:
 
-To fit a pipeline or to tune a model from Python, use the vendored `pyspark.ml.Pipeline` and
-`pyspark.ml.tuning.CrossValidator`, which take the estimator and transformer objects, as
-PySpark does. The Rust API has no way to fit a pipeline or to tune a model.
+- **Stages:** the stages are any estimators and transformers: the native classes,
+  `pyspark.ml`'s, or the user's.
+- **Fit:** `fit` is `Pipeline._fit`. Up to the last estimator, a transformer transforms and an
+  estimator fits, and its model transforms for the stages after it. The stages after the last
+  estimator are kept as they are, in a `PipelineModel` of a new uid.
+- **Transform:** `PipelineModel.transform` transforms by each stage in order.
+- **Copy:** `Pipeline.copy` keeps the uid and copies each stage with the extra params, while
+  `PipelineModel.copy` is of a new uid.
+- **Persistence:** `write`, `save`, `read` and `load` are of PySpark's Python format:
+  - the metadata of `pyspark.ml.pipeline.Pipeline` (or `PipelineModel`), of the `stageUids`;
+  - each stage, saved by its own writer at `stages/<index>_<uid>`.
+
+  PySpark loads what this client saves, and this client loads what PySpark saves. A stage loads
+  as the native class of `pyspark.ml.connect` of its name where one loads, else as PySpark's
+  class. An overwrite deletes the path by the ML helper first, as `RemoteMLWriter` does.
+
+`spark_connect::ml::CrossValidator` and `pyspark.ml.connect.CrossValidator` do not fit yet:
+- their `fit` raises `NOT_IMPLEMENTED` (`PySparkNotImplementedError` in Python), naming
+  `CrossValidator.fit`, before any request is sent;
+- to tune a model from Python, use the vendored `pyspark.ml.tuning.CrossValidator`.
+
+`spark_connect::ml::Pipeline`, which holds stage names, does not fit either.
 
 ## pyspark.ml
 
