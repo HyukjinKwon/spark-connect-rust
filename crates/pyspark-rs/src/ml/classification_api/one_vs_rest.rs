@@ -2,16 +2,34 @@
 //! The typed model of OneVsRest: OneVsRestModel, a container of the models of the classes of a fit,
 //! with its classifier and its other params as Python values (as PySpark's `PipelineModel`).
 use super::*;
-use spark_connect::ml::{OperatorType, ReadResult};
+use spark_connect::column::{lit_double, when};
+use spark_connect::ml::{OneVsRestModel as CoreOneVsRestModel, OperatorType, ReadResult, SubModel};
+use std::sync::OnceLock;
+
+/// The fit of a OneVsRest, of what its model's submodels are made of: the training DataFrame, the
+/// prefix of the names of the binary labels that the core fits them with, and the columns of
+/// the fit.
+#[derive(Clone)]
+pub(crate) struct OneVsRestFit {
+    pub(crate) train: DataFrame,
+    pub(crate) label_prefix: String,
+    pub(crate) label: String,
+    pub(crate) features: String,
+    pub(crate) weight: Option<String>,
+}
 
 /// OneVsRestModel: the models of the classes of a fit, with the classifier and the other params
-/// that PySpark's OneVsRestModel holds. Its transform is the composite model's of the core. Its
-/// `models` need the submodels of the composite, which the core keeps private (see `models`).
+/// that PySpark's OneVsRestModel holds. Its transform is the composite model's of the core, and its
+/// `models` are the typed submodels of the composite, as PySpark's `OneVsRest._fit` makes them.
 #[pyclass(name = "OneVsRestModel", module = "pyspark.ml.connect.classification")]
 pub struct PyOneVsRestModel {
     core: object::ModelCore,
     /// The Python values of the identity params: the classifier.
     raw: Vec<(&'static str, Py<PyAny>)>,
+    /// The fit that the submodels are made of; None of a loaded model.
+    fit: Option<OneVsRestFit>,
+    /// The `models`, made at the first access, then the same list.
+    models: OnceLock<Py<PyList>>,
 }
 
 impl PyOneVsRestModel {
@@ -20,15 +38,17 @@ impl PyOneVsRestModel {
     pub(crate) fn fitted(
         py: Python<'_>,
         model: Box<dyn Model>,
-        df: &DataFrame,
+        fit: OneVsRestFit,
         classifier: Py<PyAny>,
     ) -> PyResult<Self> {
         let mut core =
-            object::ModelCore::fitted(py, model, df, object::SummaryDataset::None, None)?;
+            object::ModelCore::fitted(py, model, &fit.train, object::SummaryDataset::None, None)?;
         core.model.operator_mut().uid = params_api::random_uid(py, "OneVsRestModel")?;
         Ok(Self {
             core,
             raw: vec![("classifier", classifier)],
+            fit: Some(fit),
+            models: OnceLock::new(),
         })
     }
 
@@ -44,10 +64,198 @@ impl PyOneVsRestModel {
             Self {
                 core,
                 raw: Vec::new(),
+                fit: None,
+                models: OnceLock::new(),
             },
         )?
         .into_any())
     }
+
+    /// The classifier, if the param is set.
+    fn classifier(&self, py: Python<'_>) -> Option<Py<PyAny>> {
+        self.raw
+            .iter()
+            .find(|(name, _)| *name == "classifier")
+            .map(|(_, value)| value.clone_ref(py))
+    }
+}
+
+/// The column of the name `name` exactly, a name with a dot too.
+fn ml_column(name: &str) -> spark_connect::Column {
+    spark_connect::column::col(&format!("`{}`", name.replace('`', "``")))
+}
+
+/// The binary training set of the class `index`, which PySpark's `OneVsRest._fit` fits the class
+/// with: the label, the features and the weight, and the binary label of the class, as the core
+/// names it on the server (the summary dataset of the class's model).
+fn binary_frame(fit: &OneVsRestFit, index: usize) -> DataFrame {
+    let mut columns = vec![ml_column(&fit.label), ml_column(&fit.features)];
+    if let Some(weight) = &fit.weight {
+        columns.push(ml_column(weight));
+    }
+    fit.train.select(columns).with_column(
+        &format!("{}_label_{}", fit.label_prefix, index),
+        when(
+            ml_column(&fit.label).eq(lit_double(index as f64)),
+            lit_double(1.0),
+        )
+        .otherwise(lit_double(0.0)),
+    )
+}
+
+/// The defaults of the classifier `classifier`, which PySpark's submodels have as the classifier's
+/// copy has them (see `params_api::fit_defaults`).
+fn classifier_defaults(classifier: &Bound<'_, PyAny>) -> PyResult<params_api::OwnDefaults> {
+    if let Ok(value) = classifier.cast::<crate::ml::PyLinearSVC>() {
+        return params_api::fit_defaults(value);
+    }
+    if let Ok(value) = classifier.cast::<crate::ml::PyNaiveBayes>() {
+        return params_api::fit_defaults(value);
+    }
+    if let Ok(value) = classifier.cast::<crate::ml::PyFMClassifier>() {
+        return params_api::fit_defaults(value);
+    }
+    if let Ok(value) = classifier.cast::<crate::ml::PyMultilayerPerceptronClassifier>() {
+        return params_api::fit_defaults(value);
+    }
+    Ok(Vec::new())
+}
+
+/// A generic model of a submodel of a classifier without a typed class.
+fn generic_submodel(
+    py: Python<'_>,
+    model: Box<dyn Model>,
+    binary: &DataFrame,
+) -> PyResult<Py<PyAny>> {
+    let model = crate::ml::PyMLModel {
+        model,
+        session_id: binary.spark_session().session_id().to_string(),
+    };
+    Ok(Py::new(py, model)?.into_any())
+}
+
+/// The typed submodel of the class `index`, as PySpark's `OneVsRest._fit` has it: the model of the
+/// classifier's copy with the binary label of the class, of the classifier's uid, params and
+/// defaults, and with the binary training set as its summary dataset.
+fn submodel(
+    py: Python<'_>,
+    index: usize,
+    sub: SubModel,
+    fit: &OneVsRestFit,
+    defaults: &params_api::OwnDefaults,
+) -> PyResult<Py<PyAny>> {
+    let binary = binary_frame(fit, index);
+    let label = format!("mc2b${index}");
+    // PySpark's submodel has the binary label of the class as its labelCol param.
+    let with_label = |mut model: Box<dyn Model>| -> Box<dyn Model> {
+        let params = std::mem::take(model.params_mut()).set_param_string("labelCol", &label);
+        *model.params_mut() = params;
+        model
+    };
+    match sub {
+        SubModel::LinearSVC(model) => {
+            let mut typed = PyLinearSVCModel::fitted(
+                py,
+                with_label(Box::new(model)),
+                &binary,
+                object::SummaryDataset::Train,
+            )?;
+            params_api::copy_defaults(
+                py,
+                params_api::clone_own_defaults(py, defaults),
+                &mut typed,
+            )?;
+            Ok(Py::new(py, typed)?.into_any())
+        }
+        SubModel::NaiveBayes(model) => {
+            let mut typed = PyNaiveBayesModel::fitted(
+                py,
+                with_label(Box::new(model)),
+                &binary,
+                object::SummaryDataset::None,
+            )?;
+            params_api::copy_defaults(
+                py,
+                params_api::clone_own_defaults(py, defaults),
+                &mut typed,
+            )?;
+            Ok(Py::new(py, typed)?.into_any())
+        }
+        SubModel::FMClassification(model) => {
+            let mut typed = PyFMClassificationModel::fitted(
+                py,
+                with_label(Box::new(model)),
+                &binary,
+                object::SummaryDataset::Train,
+            )?;
+            params_api::copy_defaults(
+                py,
+                params_api::clone_own_defaults(py, defaults),
+                &mut typed,
+            )?;
+            Ok(Py::new(py, typed)?.into_any())
+        }
+        SubModel::MultilayerPerceptronClassification(model) => {
+            let mut typed = PyMultilayerPerceptronClassificationModel::fitted(
+                py,
+                with_label(Box::new(model)),
+                &binary,
+                object::SummaryDataset::Train,
+            )?;
+            params_api::copy_defaults(
+                py,
+                params_api::clone_own_defaults(py, defaults),
+                &mut typed,
+            )?;
+            Ok(Py::new(py, typed)?.into_any())
+        }
+        SubModel::LogisticRegression(model) => {
+            generic_submodel(py, with_label(Box::new(model)), &binary)
+        }
+        SubModel::DecisionTreeClassification(model) => {
+            generic_submodel(py, with_label(Box::new(model)), &binary)
+        }
+        SubModel::RandomForestClassification(model) => {
+            generic_submodel(py, with_label(Box::new(model)), &binary)
+        }
+        SubModel::GBTClassification(model) => {
+            generic_submodel(py, with_label(Box::new(model)), &binary)
+        }
+        SubModel::Other(model) => generic_submodel(py, with_label(model), &binary),
+    }
+}
+
+/// The `models` of `slf`: its typed submodels, made at the first access from the composite's
+/// submodels, with no request to the server.
+fn submodels(slf: &Bound<'_, PyOneVsRestModel>) -> PyResult<Py<PyList>> {
+    let py = slf.py();
+    if let Some(list) = slf.try_borrow()?.models.get() {
+        return Ok(list.clone_ref(py));
+    }
+    let list = {
+        let this = slf.try_borrow()?;
+        let Some(fit) = this.fit.as_ref() else {
+            return Err(PyValueError::new_err(
+                "the models of a loaded OneVsRestModel are not held",
+            ));
+        };
+        let Some(composite) = this.core.model.downcast_ref::<CoreOneVsRestModel>() else {
+            return Err(PyValueError::new_err(
+                "the model of a OneVsRestModel is not a composite of its classes",
+            ));
+        };
+        let defaults = match this.classifier(py) {
+            Some(classifier) => classifier_defaults(classifier.bind(py))?,
+            None => Vec::new(),
+        };
+        let list = PyList::empty(py);
+        for (index, sub) in composite.models().into_iter().enumerate() {
+            list.append(submodel(py, index, sub, fit, &defaults)?)?;
+        }
+        list.unbind()
+    };
+    let _ = slf.try_borrow()?.models.set(list.clone_ref(py));
+    Ok(list)
 }
 
 impl params_api::ParamsHolder for PyOneVsRestModel {
@@ -100,6 +308,8 @@ impl params_api::NativeInstance for PyOneVsRestModel {
             Self {
                 core: self.core.duplicate(py),
                 raw,
+                fit: self.fit.clone(),
+                models: OnceLock::new(),
             },
         )
     }
@@ -129,17 +339,11 @@ native_pymethods! {
         "weightCol" => ("getWeightCol", get_weight_col, param_weight_col),
     ];
 
-    /// The models of the classes, as PySpark's `models` attribute. The core keeps the submodels
-    /// of its composite model private, and the composite has no server-side object of its own to
-    /// fetch them from, so this is NOT_IMPLEMENTED until the core exposes them.
+    /// The models of the classes, as PySpark's `models` attribute: the typed models of the
+    /// classifier, each of the uid of the classifier.
     #[getter]
     fn models(slf: &Bound<'_, Self>) -> PyResult<Py<PyList>> {
-        Err(crate::column::raise_pyspark(
-            slf.py(),
-            "PySparkNotImplementedError",
-            "NOT_IMPLEMENTED",
-            &[("feature", "OneVsRestModel.models")],
-        ))
+        submodels(slf)
     }
 
     /// The transform of `dataset`, as `Transformer.transform`: of a copy of the model of a

@@ -2129,6 +2129,18 @@ native_pymethods! {
             // The classifier's params are serialized by its fits, which run in that pool.
             core = core.set_classifier(native_classifier(classifier.bind(py), true)?);
             core.ensure_operator();
+            // The names of the binary labels of the classes, and of the columns of the fit, which
+            // the submodels of the model are made of.
+            let fit = classification_api::OneVsRestFit {
+                train: df.clone(),
+                label_prefix: Estimator::operator(&core).uid.clone(),
+                label: core.label_col().to_string(),
+                features: core.features_col().to_string(),
+                weight: core
+                    .weight_col()
+                    .filter(|name| !name.is_empty() && supports_weight)
+                    .map(str::to_string),
+            };
             let model = interruptible(py, &session, || {
                 core.fit_classes(&df, num_classes, threads as usize)
                     .map_err(Box::new)
@@ -2137,7 +2149,7 @@ native_pymethods! {
             let mut fitted = classification_api::PyOneVsRestModel::fitted(
                 py,
                 Box::new(model),
-                &df,
+                fit,
                 classifier,
             )?;
             params_api::copy_defaults(py, defaults, &mut fitted)?;
