@@ -20,11 +20,11 @@ use super::{
 use crate::dataframe::DataFrame;
 use crate::ml::tree_api::{as_f64s, fetch_value};
 use crate::ml::{
-    fetch, fit_via_command, read_model, read_operator, DecisionTreeClassificationModel,
-    DecisionTreeClassifier, DecisionTreeModel, DecisionTreeRegressionModel, Estimator, FetchArg,
-    GBTClassificationModel, GBTClassifier, MlOperator, MlRef, MlTarget, Model, OperatorType,
-    Params, PredictionModel, RandomForestClassificationModel, RandomForestClassifier,
-    TreeEnsembleModel,
+    fetch, fit_via_command, java_string_hash, read_model, read_operator,
+    DecisionTreeClassificationModel, DecisionTreeClassifier, DecisionTreeModel,
+    DecisionTreeRegressionModel, Estimator, FetchArg, GBTClassificationModel, GBTClassifier,
+    MlOperator, MlRef, MlTarget, Model, OperatorType, Params, PredictionModel,
+    RandomForestClassificationModel, RandomForestClassifier, TreeEnsembleModel,
 };
 use crate::SparkSession;
 
@@ -49,6 +49,54 @@ const LOSS_TYPES: &[&str] = &["logistic"];
 
 // The estimators: the typed fit, the persistence and the client-side lists of PySpark.
 
+ml_params! {
+    DecisionTreeClassifier {
+        set_cache_node_ids(value: bool) => "cacheNodeIds", set_param_bool;
+        cache_node_ids -> bool = |this| this.params.bool_or("cacheNodeIds", false);
+        set_checkpoint_interval(value: i32) => "checkpointInterval", set_param_int32;
+        checkpoint_interval -> i32 = |this| this.params.int_or("checkpointInterval", 10);
+        set_features_col(value: &str) => "featuresCol", set_param_string;
+        features_col -> &str = |this| this.params.string_or("featuresCol", "features");
+        set_impurity(value: &str) => "impurity", set_param_string;
+        impurity -> &str = |this| this.params.string_or("impurity", "gini");
+        set_label_col(value: &str) => "labelCol", set_param_string;
+        label_col -> &str = |this| this.params.string_or("labelCol", "label");
+        set_leaf_col(value: &str) => "leafCol", set_param_string;
+        leaf_col -> &str = |this| this.params.string_or("leafCol", "");
+        set_max_bins(value: i32) => "maxBins", set_param_int32;
+        max_bins -> i32 = |this| this.params.int_or("maxBins", 32);
+        set_max_depth(value: i32) => "maxDepth", set_param_int32;
+        max_depth -> i32 = |this| this.params.int_or("maxDepth", 5);
+        set_max_memory_in_mb(value: i32) => "maxMemoryInMB", set_param_int32;
+        max_memory_in_mb -> i32 = |this| this.params.int_or("maxMemoryInMB", 256);
+        set_min_info_gain(value: f64) => "minInfoGain", set_param_double;
+        min_info_gain -> f64 = |this| this.params.double_or("minInfoGain", 0.0);
+        set_min_instances_per_node(value: i32) => "minInstancesPerNode", set_param_int32;
+        min_instances_per_node -> i32 = |this| this.params.int_or("minInstancesPerNode", 1);
+        set_min_weight_fraction_per_node(value: f64) => "minWeightFractionPerNode",
+            set_param_double;
+        min_weight_fraction_per_node -> f64 = |this| this.params.double_or(
+            "minWeightFractionPerNode", 0.0);
+        set_prediction_col(value: &str) => "predictionCol", set_param_string;
+        prediction_col -> &str = |this| this.params.string_or("predictionCol", "prediction");
+        set_probability_col(value: &str) => "probabilityCol", set_param_string;
+        probability_col -> &str = |this| this.params.string_or("probabilityCol", "probability");
+        set_prune_tree(value: bool) => "pruneTree", set_param_bool;
+        prune_tree -> bool = |this| this.params.bool_or("pruneTree", true);
+        set_raw_prediction_col(value: &str) => "rawPredictionCol", set_param_string;
+        raw_prediction_col -> &str = |this| this.params.string_or("rawPredictionCol",
+            "rawPrediction");
+        set_seed(value: i64) => "seed", set_param_int_narrow;
+        seed -> i64 = |this| this.params.long_opt("seed").unwrap_or(java_string_hash(
+            "org.apache.spark.ml.classification.DecisionTreeClassifier"));
+        set_thresholds(value: impl IntoIterator<Item = f64>) => "thresholds",
+            set_param_double_array;
+        thresholds -> Option<Vec<f64>> = |this| this.params.double_array_opt("thresholds");
+        set_weight_col(value: &str) => "weightCol", set_param_string;
+        weight_col -> Option<&str> = |this| this.params.string_opt("weightCol");
+    }
+}
+
 impl DecisionTreeClassifier {
     /// Fit the decision tree classification model of `df` (`fit`), typed.
     pub fn fit(&mut self, df: &DataFrame) -> Result<DecisionTreeClassificationModel> {
@@ -71,6 +119,63 @@ impl DecisionTreeClassifier {
     /// The impurities that the tree supports (`supportedImpurities`).
     pub fn supported_impurities(&self) -> &'static [&'static str] {
         CLASSIFIER_IMPURITIES
+    }
+}
+
+ml_params! {
+    RandomForestClassifier {
+        set_bootstrap(value: bool) => "bootstrap", set_param_bool;
+        bootstrap -> bool = |this| this.params.bool_or("bootstrap", true);
+        set_cache_node_ids(value: bool) => "cacheNodeIds", set_param_bool;
+        cache_node_ids -> bool = |this| this.params.bool_or("cacheNodeIds", false);
+        set_checkpoint_interval(value: i32) => "checkpointInterval", set_param_int32;
+        checkpoint_interval -> i32 = |this| this.params.int_or("checkpointInterval", 10);
+        set_feature_subset_strategy(value: &str) => "featureSubsetStrategy", set_param_string;
+        feature_subset_strategy -> &str = |this| this.params.string_or("featureSubsetStrategy",
+            "auto");
+        set_features_col(value: &str) => "featuresCol", set_param_string;
+        features_col -> &str = |this| this.params.string_or("featuresCol", "features");
+        set_impurity(value: &str) => "impurity", set_param_string;
+        impurity -> &str = |this| this.params.string_or("impurity", "gini");
+        set_label_col(value: &str) => "labelCol", set_param_string;
+        label_col -> &str = |this| this.params.string_or("labelCol", "label");
+        set_leaf_col(value: &str) => "leafCol", set_param_string;
+        leaf_col -> &str = |this| this.params.string_or("leafCol", "");
+        set_max_bins(value: i32) => "maxBins", set_param_int32;
+        max_bins -> i32 = |this| this.params.int_or("maxBins", 32);
+        set_max_depth(value: i32) => "maxDepth", set_param_int32;
+        max_depth -> i32 = |this| this.params.int_or("maxDepth", 5);
+        set_max_memory_in_mb(value: i32) => "maxMemoryInMB", set_param_int32;
+        max_memory_in_mb -> i32 = |this| this.params.int_or("maxMemoryInMB", 256);
+        set_min_info_gain(value: f64) => "minInfoGain", set_param_double;
+        min_info_gain -> f64 = |this| this.params.double_or("minInfoGain", 0.0);
+        set_min_instances_per_node(value: i32) => "minInstancesPerNode", set_param_int32;
+        min_instances_per_node -> i32 = |this| this.params.int_or("minInstancesPerNode", 1);
+        set_min_weight_fraction_per_node(value: f64) => "minWeightFractionPerNode",
+            set_param_double;
+        min_weight_fraction_per_node -> f64 = |this| this.params.double_or(
+            "minWeightFractionPerNode", 0.0);
+        set_num_trees(value: i32) => "numTrees", set_param_int32;
+        num_trees -> i32 = |this| this.params.int_or("numTrees", 20);
+        set_prediction_col(value: &str) => "predictionCol", set_param_string;
+        prediction_col -> &str = |this| this.params.string_or("predictionCol", "prediction");
+        set_probability_col(value: &str) => "probabilityCol", set_param_string;
+        probability_col -> &str = |this| this.params.string_or("probabilityCol", "probability");
+        set_prune_tree(value: bool) => "pruneTree", set_param_bool;
+        prune_tree -> bool = |this| this.params.bool_or("pruneTree", true);
+        set_raw_prediction_col(value: &str) => "rawPredictionCol", set_param_string;
+        raw_prediction_col -> &str = |this| this.params.string_or("rawPredictionCol",
+            "rawPrediction");
+        set_seed(value: i64) => "seed", set_param_int_narrow;
+        seed -> i64 = |this| this.params.long_opt("seed").unwrap_or(java_string_hash(
+            "org.apache.spark.ml.classification.RandomForestClassifier"));
+        set_subsampling_rate(value: f64) => "subsamplingRate", set_param_double;
+        subsampling_rate -> f64 = |this| this.params.double_or("subsamplingRate", 1.0);
+        set_thresholds(value: impl IntoIterator<Item = f64>) => "thresholds",
+            set_param_double_array;
+        thresholds -> Option<Vec<f64>> = |this| this.params.double_array_opt("thresholds");
+        set_weight_col(value: &str) => "weightCol", set_param_string;
+        weight_col -> Option<&str> = |this| this.params.string_opt("weightCol");
     }
 }
 
@@ -111,6 +216,68 @@ impl RandomForestClassifier {
     }
 }
 
+ml_params! {
+    GBTClassifier {
+        set_cache_node_ids(value: bool) => "cacheNodeIds", set_param_bool;
+        cache_node_ids -> bool = |this| this.params.bool_or("cacheNodeIds", false);
+        set_checkpoint_interval(value: i32) => "checkpointInterval", set_param_int32;
+        checkpoint_interval -> i32 = |this| this.params.int_or("checkpointInterval", 10);
+        set_feature_subset_strategy(value: &str) => "featureSubsetStrategy", set_param_string;
+        feature_subset_strategy -> &str = |this| this.params.string_or("featureSubsetStrategy",
+            "all");
+        set_features_col(value: &str) => "featuresCol", set_param_string;
+        features_col -> &str = |this| this.params.string_or("featuresCol", "features");
+        set_impurity(value: &str) => "impurity", set_param_string;
+        impurity -> &str = |this| this.params.string_or("impurity", "variance");
+        set_label_col(value: &str) => "labelCol", set_param_string;
+        label_col -> &str = |this| this.params.string_or("labelCol", "label");
+        set_leaf_col(value: &str) => "leafCol", set_param_string;
+        leaf_col -> &str = |this| this.params.string_or("leafCol", "");
+        set_loss_type(value: &str) => "lossType", set_param_string;
+        loss_type -> &str = |this| this.params.string_or("lossType", "logistic");
+        set_max_bins(value: i32) => "maxBins", set_param_int32;
+        max_bins -> i32 = |this| this.params.int_or("maxBins", 32);
+        set_max_depth(value: i32) => "maxDepth", set_param_int32;
+        max_depth -> i32 = |this| this.params.int_or("maxDepth", 5);
+        set_max_iter(value: i32) => "maxIter", set_param_int32;
+        max_iter -> i32 = |this| this.params.int_or("maxIter", 20);
+        set_max_memory_in_mb(value: i32) => "maxMemoryInMB", set_param_int32;
+        max_memory_in_mb -> i32 = |this| this.params.int_or("maxMemoryInMB", 256);
+        set_min_info_gain(value: f64) => "minInfoGain", set_param_double;
+        min_info_gain -> f64 = |this| this.params.double_or("minInfoGain", 0.0);
+        set_min_instances_per_node(value: i32) => "minInstancesPerNode", set_param_int32;
+        min_instances_per_node -> i32 = |this| this.params.int_or("minInstancesPerNode", 1);
+        set_min_weight_fraction_per_node(value: f64) => "minWeightFractionPerNode",
+            set_param_double;
+        min_weight_fraction_per_node -> f64 = |this| this.params.double_or(
+            "minWeightFractionPerNode", 0.0);
+        set_prediction_col(value: &str) => "predictionCol", set_param_string;
+        prediction_col -> &str = |this| this.params.string_or("predictionCol", "prediction");
+        set_probability_col(value: &str) => "probabilityCol", set_param_string;
+        probability_col -> &str = |this| this.params.string_or("probabilityCol", "probability");
+        set_raw_prediction_col(value: &str) => "rawPredictionCol", set_param_string;
+        raw_prediction_col -> &str = |this| this.params.string_or("rawPredictionCol",
+            "rawPrediction");
+        set_seed(value: i64) => "seed", set_param_int_narrow;
+        seed -> i64 = |this| this.params.long_opt("seed").unwrap_or(java_string_hash(
+            "org.apache.spark.ml.classification.GBTClassifier"));
+        set_step_size(value: f64) => "stepSize", set_param_double;
+        step_size -> f64 = |this| this.params.double_or("stepSize", 0.1);
+        set_subsampling_rate(value: f64) => "subsamplingRate", set_param_double;
+        subsampling_rate -> f64 = |this| this.params.double_or("subsamplingRate", 1.0);
+        set_thresholds(value: impl IntoIterator<Item = f64>) => "thresholds",
+            set_param_double_array;
+        thresholds -> Option<Vec<f64>> = |this| this.params.double_array_opt("thresholds");
+        set_validation_indicator_col(value: &str) => "validationIndicatorCol", set_param_string;
+        validation_indicator_col -> Option<&str> = |this| this.params.string_opt(
+            "validationIndicatorCol");
+        validation_tol -> f64 = |this| this.params.double_or("validationTol", 0.01) =>
+            "validationTol";
+        set_weight_col(value: &str) => "weightCol", set_param_string;
+        weight_col -> Option<&str> = |this| this.params.string_opt("weightCol");
+    }
+}
+
 impl GBTClassifier {
     /// Fit the gradient-boosted classification model of `df` (`fit`), typed.
     pub fn fit(&mut self, df: &DataFrame) -> Result<GBTClassificationModel> {
@@ -143,6 +310,44 @@ impl GBTClassifier {
 }
 
 // The decision tree classification model.
+
+ml_params! {
+    DecisionTreeClassificationModel {
+        cache_node_ids -> bool = |this| this.params.bool_or("cacheNodeIds", false) =>
+            "cacheNodeIds";
+        checkpoint_interval -> i32 = |this| this.params.int_or("checkpointInterval", 10) =>
+            "checkpointInterval";
+        set_features_col(value: &str) => "featuresCol", set_param_string;
+        features_col -> &str = |this| this.params.string_or("featuresCol", "features");
+        impurity -> &str = |this| this.params.string_or("impurity", "gini") => "impurity";
+        label_col -> &str = |this| this.params.string_or("labelCol", "label") => "labelCol";
+        set_leaf_col(value: &str) => "leafCol", set_param_string;
+        leaf_col -> &str = |this| this.params.string_or("leafCol", "");
+        max_bins -> i32 = |this| this.params.int_or("maxBins", 32) => "maxBins";
+        max_depth -> i32 = |this| this.params.int_or("maxDepth", 5) => "maxDepth";
+        max_memory_in_mb -> i32 = |this| this.params.int_or("maxMemoryInMB", 256) =>
+            "maxMemoryInMB";
+        min_info_gain -> f64 = |this| this.params.double_or("minInfoGain", 0.0) => "minInfoGain";
+        min_instances_per_node -> i32 = |this| this.params.int_or("minInstancesPerNode", 1) =>
+            "minInstancesPerNode";
+        min_weight_fraction_per_node -> f64 = |this| this.params.double_or(
+            "minWeightFractionPerNode", 0.0) => "minWeightFractionPerNode";
+        set_prediction_col(value: &str) => "predictionCol", set_param_string;
+        prediction_col -> &str = |this| this.params.string_or("predictionCol", "prediction");
+        set_probability_col(value: &str) => "probabilityCol", set_param_string;
+        probability_col -> &str = |this| this.params.string_or("probabilityCol", "probability");
+        prune_tree -> bool = |this| this.params.bool_or("pruneTree", true) => "pruneTree";
+        set_raw_prediction_col(value: &str) => "rawPredictionCol", set_param_string;
+        raw_prediction_col -> &str = |this| this.params.string_or("rawPredictionCol",
+            "rawPrediction");
+        seed -> i64 = |this| this.params.long_opt("seed").unwrap_or(java_string_hash(
+            "org.apache.spark.ml.classification.DecisionTreeClassificationModel")) => "seed";
+        set_thresholds(value: impl IntoIterator<Item = f64>) => "thresholds",
+            set_param_double_array;
+        thresholds -> Option<Vec<f64>> = |this| this.params.double_array_opt("thresholds");
+        weight_col -> Option<&str> = |this| this.params.string_opt("weightCol") => "weightCol";
+    }
+}
 
 impl DecisionTreeClassificationModel {
     /// The model of the server-side object `ml_ref`, with the params `params`, which the trees of
@@ -179,6 +384,50 @@ impl ProbabilisticClassificationModel for DecisionTreeClassificationModel {}
 impl PredictionModel for DecisionTreeClassificationModel {}
 
 // The random forest classification model and its summaries.
+
+ml_params! {
+    RandomForestClassificationModel {
+        bootstrap -> bool = |this| this.params.bool_or("bootstrap", true) => "bootstrap";
+        cache_node_ids -> bool = |this| this.params.bool_or("cacheNodeIds", false) =>
+            "cacheNodeIds";
+        checkpoint_interval -> i32 = |this| this.params.int_or("checkpointInterval", 10) =>
+            "checkpointInterval";
+        feature_subset_strategy -> &str = |this| this.params.string_or("featureSubsetStrategy",
+            "auto") => "featureSubsetStrategy";
+        set_features_col(value: &str) => "featuresCol", set_param_string;
+        features_col -> &str = |this| this.params.string_or("featuresCol", "features");
+        impurity -> &str = |this| this.params.string_or("impurity", "gini") => "impurity";
+        label_col -> &str = |this| this.params.string_or("labelCol", "label") => "labelCol";
+        set_leaf_col(value: &str) => "leafCol", set_param_string;
+        leaf_col -> &str = |this| this.params.string_or("leafCol", "");
+        max_bins -> i32 = |this| this.params.int_or("maxBins", 32) => "maxBins";
+        max_depth -> i32 = |this| this.params.int_or("maxDepth", 5) => "maxDepth";
+        max_memory_in_mb -> i32 = |this| this.params.int_or("maxMemoryInMB", 256) =>
+            "maxMemoryInMB";
+        min_info_gain -> f64 = |this| this.params.double_or("minInfoGain", 0.0) => "minInfoGain";
+        min_instances_per_node -> i32 = |this| this.params.int_or("minInstancesPerNode", 1) =>
+            "minInstancesPerNode";
+        min_weight_fraction_per_node -> f64 = |this| this.params.double_or(
+            "minWeightFractionPerNode", 0.0) => "minWeightFractionPerNode";
+        num_trees -> i32 = |this| this.params.int_or("numTrees", 20) => "numTrees";
+        set_prediction_col(value: &str) => "predictionCol", set_param_string;
+        prediction_col -> &str = |this| this.params.string_or("predictionCol", "prediction");
+        set_probability_col(value: &str) => "probabilityCol", set_param_string;
+        probability_col -> &str = |this| this.params.string_or("probabilityCol", "probability");
+        prune_tree -> bool = |this| this.params.bool_or("pruneTree", true) => "pruneTree";
+        set_raw_prediction_col(value: &str) => "rawPredictionCol", set_param_string;
+        raw_prediction_col -> &str = |this| this.params.string_or("rawPredictionCol",
+            "rawPrediction");
+        seed -> i64 = |this| this.params.long_opt("seed").unwrap_or(java_string_hash(
+            "org.apache.spark.ml.classification.RandomForestClassificationModel")) => "seed";
+        subsampling_rate -> f64 = |this| this.params.double_or("subsamplingRate", 1.0) =>
+            "subsamplingRate";
+        set_thresholds(value: impl IntoIterator<Item = f64>) => "thresholds",
+            set_param_double_array;
+        thresholds -> Option<Vec<f64>> = |this| this.params.double_array_opt("thresholds");
+        weight_col -> Option<&str> = |this| this.params.string_opt("weightCol") => "weightCol";
+    }
+}
 
 impl RandomForestClassificationModel {
     /// The model of the server-side object `ml_ref`, with the params `params`. It has a new uid
@@ -389,6 +638,54 @@ impl BinaryClassificationSummary for BinaryRandomForestClassificationTrainingSum
 impl TrainingSummary for BinaryRandomForestClassificationTrainingSummary {}
 
 // The gradient-boosted classification model.
+
+ml_params! {
+    GBTClassificationModel {
+        cache_node_ids -> bool = |this| this.params.bool_or("cacheNodeIds", false) =>
+            "cacheNodeIds";
+        checkpoint_interval -> i32 = |this| this.params.int_or("checkpointInterval", 10) =>
+            "checkpointInterval";
+        feature_subset_strategy -> &str = |this| this.params.string_or("featureSubsetStrategy",
+            "all") => "featureSubsetStrategy";
+        set_features_col(value: &str) => "featuresCol", set_param_string;
+        features_col -> &str = |this| this.params.string_or("featuresCol", "features");
+        impurity -> &str = |this| this.params.string_or("impurity", "variance") => "impurity";
+        label_col -> &str = |this| this.params.string_or("labelCol", "label") => "labelCol";
+        set_leaf_col(value: &str) => "leafCol", set_param_string;
+        leaf_col -> &str = |this| this.params.string_or("leafCol", "");
+        loss_type -> &str = |this| this.params.string_or("lossType", "logistic") => "lossType";
+        max_bins -> i32 = |this| this.params.int_or("maxBins", 32) => "maxBins";
+        max_depth -> i32 = |this| this.params.int_or("maxDepth", 5) => "maxDepth";
+        max_iter -> i32 = |this| this.params.int_or("maxIter", 20) => "maxIter";
+        max_memory_in_mb -> i32 = |this| this.params.int_or("maxMemoryInMB", 256) =>
+            "maxMemoryInMB";
+        min_info_gain -> f64 = |this| this.params.double_or("minInfoGain", 0.0) => "minInfoGain";
+        min_instances_per_node -> i32 = |this| this.params.int_or("minInstancesPerNode", 1) =>
+            "minInstancesPerNode";
+        min_weight_fraction_per_node -> f64 = |this| this.params.double_or(
+            "minWeightFractionPerNode", 0.0) => "minWeightFractionPerNode";
+        set_prediction_col(value: &str) => "predictionCol", set_param_string;
+        prediction_col -> &str = |this| this.params.string_or("predictionCol", "prediction");
+        set_probability_col(value: &str) => "probabilityCol", set_param_string;
+        probability_col -> &str = |this| this.params.string_or("probabilityCol", "probability");
+        set_raw_prediction_col(value: &str) => "rawPredictionCol", set_param_string;
+        raw_prediction_col -> &str = |this| this.params.string_or("rawPredictionCol",
+            "rawPrediction");
+        seed -> i64 = |this| this.params.long_opt("seed").unwrap_or(java_string_hash(
+            "org.apache.spark.ml.classification.GBTClassificationModel")) => "seed";
+        step_size -> f64 = |this| this.params.double_or("stepSize", 0.1) => "stepSize";
+        subsampling_rate -> f64 = |this| this.params.double_or("subsamplingRate", 1.0) =>
+            "subsamplingRate";
+        set_thresholds(value: impl IntoIterator<Item = f64>) => "thresholds",
+            set_param_double_array;
+        thresholds -> Option<Vec<f64>> = |this| this.params.double_array_opt("thresholds");
+        validation_indicator_col -> Option<&str> = |this| this.params.string_opt(
+            "validationIndicatorCol") => "validationIndicatorCol";
+        validation_tol -> f64 = |this| this.params.double_or("validationTol", 0.01) =>
+            "validationTol";
+        weight_col -> Option<&str> = |this| this.params.string_opt("weightCol") => "weightCol";
+    }
+}
 
 impl GBTClassificationModel {
     /// The model of the server-side object `ml_ref`, with the params `params`. It has a new uid.

@@ -491,9 +491,13 @@ validate early stopping; the resulting ensemble can contain fewer than `maxIter`
 trees. DataFrame transforms expose predictions, probabilities, raw margins and an
 optional vector of leaf IDs, one per fitted tree. Instance weights are supported.
 Models, clones and lazy transformed DataFrames retain the cached model in its
-fitting session until the last owner is dropped. Multiclass training, model
-inspection, per-iteration evaluation, single-vector prediction and persistence
-are outside this native addition.
+fitting session until the last owner is dropped. The Rust model has the typed
+accessors of PySpark's `GBTClassificationModel`: `trees` (regression tree models),
+`tree_weights`, `get_num_trees`, `total_num_nodes`, `feature_importances`,
+`to_debug_string`, `predict`, `predict_leaf`, `predict_raw`, `predict_probability`,
+`evaluate_each_iteration(&df)` and the supported-value lists. It has `load`, and
+`write().save(path)`. Unlike PySpark, the fit does not fetch the trees up front; they
+are fetched when asked. The native Python model class is not covered by this section.
 
 ## Native DecisionTreeRegressor
 
@@ -534,8 +538,11 @@ etc. methods and `setThresholds` return the estimator.
 Fitted models expose DataFrame `transform`, including prediction, probability,
 raw per-leaf weighted class counts and an optional scalar double leaf index.
 Models, clones and lazy transformed DataFrames retain the cached model in its
-fitting session until the last owner is dropped. Tree inspection, feature
-importances, single-vector prediction and persistence are outside this addition.
+fitting session until the last owner is dropped. The Rust model has the typed
+accessors of PySpark's `DecisionTreeClassificationModel`: `depth`, `num_nodes`,
+`feature_importances`, `to_debug_string`, `predict`, `predict_leaf`, `predict_raw`,
+`predict_probability` and `supported_impurities`, and `load`; `write().save(path)`
+saves it. The native Python model class is not covered by this section.
 
 ## Native RandomForestClassifier
 
@@ -556,8 +563,16 @@ PySpark's parameter names and defaults, with mutating `setFeaturesCol`,
 Fitted models expose DataFrame `transform`, including prediction, probability,
 raw prediction and optional per-tree leaf index columns. Models, clones and lazy
 transformed DataFrames retain the cached model in its fitting session until the
-last owner is dropped. Tree inspection, feature importances, training summaries,
-single-vector prediction and persistence are not exposed by this native addition.
+last owner is dropped. The Rust model has the typed accessors of PySpark's
+`RandomForestClassificationModel`: `trees` (decision tree models), `tree_weights`,
+`get_num_trees`, `total_num_nodes`, `feature_importances`, `to_debug_string`,
+`predict`, `predict_leaf`, `predict_raw`, `predict_probability`, `has_summary`,
+`summary()` (the binary or multiclass training summary, chosen by `numClasses`),
+`evaluate(&df)` (the binary or multiclass summary of a dataset), the supported-value
+lists, and `load`; `write().save(path)` saves it. A loaded model has no training
+summary. The fit does not fetch `numClasses` and the trees up front as PySpark does;
+`summary()` and `trees()` fetch them when asked. The native Python model class is
+not covered by this section.
 
 ## Native KMeans
 

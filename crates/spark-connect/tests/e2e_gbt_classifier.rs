@@ -62,7 +62,7 @@ fn gbt_classifier_learns_nonlinear_labels_and_keeps_cached_models_alive() {
         "input",
     );
     let mut estimator = deterministic()
-        .set_feature_col("input")
+        .set_features_col("input")
         .set_label_col("target")
         .set_prediction_col("class")
         .set_probability_col("probs")
