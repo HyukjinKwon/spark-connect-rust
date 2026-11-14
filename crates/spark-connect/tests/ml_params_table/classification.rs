@@ -29,16 +29,31 @@ pub const CONVERTED: &[(&str, &[&str])] = &[
     ("OneVsRest", OneVsRest::PARAM_NAMES),
     ("OneVsRestModel", OneVsRestModel::PARAM_NAMES),
     // The decision tree, random forest and gradient-boosted tree classifiers.
+    (
+        "DecisionTreeClassificationModel",
+        DecisionTreeClassificationModel::PARAM_NAMES,
+    ),
+    (
+        "DecisionTreeClassifier",
+        DecisionTreeClassifier::PARAM_NAMES,
+    ),
+    (
+        "GBTClassificationModel",
+        GBTClassificationModel::PARAM_NAMES,
+    ),
+    ("GBTClassifier", GBTClassifier::PARAM_NAMES),
+    (
+        "RandomForestClassificationModel",
+        RandomForestClassificationModel::PARAM_NAMES,
+    ),
+    (
+        "RandomForestClassifier",
+        RandomForestClassifier::PARAM_NAMES,
+    ),
 ];
 
 /// Golden classes of this area that are not converted, each with its reason.
 pub const EXCLUDED: &[(&str, &str)] = &[
     // NaiveBayes, MultilayerPerceptron, FM and OneVsRest.
     // The decision tree, random forest and gradient-boosted tree classifiers.
-    ("DecisionTreeClassificationModel", "pending: classification"),
-    ("DecisionTreeClassifier", "pending: classification"),
-    ("GBTClassificationModel", "pending: classification"),
-    ("GBTClassifier", "pending: classification"),
-    ("RandomForestClassificationModel", "pending: classification"),
-    ("RandomForestClassifier", "pending: classification"),
 ];

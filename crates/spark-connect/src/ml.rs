@@ -738,7 +738,7 @@ impl Params {
 }
 
 // The optional getters below are read by the rows that scripts/gen_rust_params_table.py prints
-// for each converted class. The attribute goes once the first of those rows is converted.
+// for each converted class. Some have no row of the classes converted so far, so the allow stays.
 #[allow(dead_code)]
 impl Params {
     /// The integer parameter `name`, if it is set, as the server reads it into a JVM `Int`.
@@ -3727,219 +3727,6 @@ impl DecisionTreeClassifier {
         }
     }
 
-    /// Feature vector column.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Numeric label column of non-negative integer class indices below numClasses, which
-    /// is the label column metadata's count, else the maximum label plus one.
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Predicted class output column.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Class probability output column.
-    pub fn set_probability_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("probabilityCol", value);
-        self
-    }
-
-    /// Raw class prediction output column.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Maximum tree depth, from 0 to 30.
-    pub fn set_max_depth(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxDepth", value);
-        self
-    }
-
-    /// Maximum number of bins for discretizing continuous features.
-    pub fn set_max_bins(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxBins", value);
-        self
-    }
-
-    /// Minimum number of training instances in each child node.
-    pub fn set_min_instances_per_node(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("minInstancesPerNode", value);
-        self
-    }
-
-    /// Minimum information gain for a split.
-    pub fn set_min_info_gain(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("minInfoGain", value);
-        self
-    }
-
-    /// Whether to prune redundant nodes, as supported by Spark 4.3.0.
-    pub fn set_prune_tree(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("pruneTree", value);
-        self
-    }
-
-    /// Maximum memory in MB for histogram aggregation.
-    pub fn set_max_memory_in_mb(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxMemoryInMB", value);
-        self
-    }
-
-    /// Whether to cache node IDs for training instances.
-    pub fn set_cache_node_ids(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("cacheNodeIds", value);
-        self
-    }
-
-    /// Node ID cache checkpoint interval; -1 disables checkpointing.
-    pub fn set_checkpoint_interval(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("checkpointInterval", value);
-        self
-    }
-
-    /// Impurity measure: gini or entropy.
-    pub fn set_impurity(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("impurity", value);
-        self
-    }
-
-    /// Random seed for sampling the rows that find the split candidates, on large inputs.
-    pub fn set_seed(mut self, value: i64) -> Self {
-        self.params = self.params.set_param_int_narrow("seed", value);
-        self
-    }
-
-    /// Optional scalar leaf index output column; empty disables it.
-    pub fn set_leaf_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("leafCol", value);
-        self
-    }
-
-    /// Minimum fraction of total weight in each child node, in [0, 0.5).
-    pub fn set_min_weight_fraction_per_node(mut self, value: f64) -> Self {
-        self.params = self
-            .params
-            .set_param_double("minWeightFractionPerNode", value);
-        self
-    }
-
-    /// Optional instance weight column.
-    pub fn set_weight_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("weightCol", value);
-        self
-    }
-
-    /// Per-class thresholds: predictions maximize probability divided by threshold.
-    /// Provide one nonnegative value per class, with at most one zero.
-    pub fn set_thresholds(mut self, values: impl IntoIterator<Item = f64>) -> Self {
-        self.params = self.params.set_param_double_array("thresholds", values);
-        self
-    }
-
-    /// The feature vector column (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The label column (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The predicted class output column (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// The class probability output column (default: "probability").
-    pub fn probability_col(&self) -> &str {
-        self.params.string_or("probabilityCol", "probability")
-    }
-
-    /// The raw class prediction output column (default: "rawPrediction").
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// The maximum tree depth (default: 5).
-    pub fn max_depth(&self) -> i32 {
-        self.params.int_or("maxDepth", 5)
-    }
-
-    /// The maximum number of bins for continuous features (default: 32).
-    pub fn max_bins(&self) -> i32 {
-        self.params.int_or("maxBins", 32)
-    }
-
-    /// The minimum number of training instances in each child node (default: 1).
-    pub fn min_instances_per_node(&self) -> i32 {
-        self.params.int_or("minInstancesPerNode", 1)
-    }
-
-    /// The minimum information gain for a split (default: 0).
-    pub fn min_info_gain(&self) -> f64 {
-        self.params.double_or("minInfoGain", 0.0)
-    }
-
-    /// Whether to prune redundant nodes (default: true).
-    pub fn prune_tree(&self) -> bool {
-        self.params.bool_or("pruneTree", true)
-    }
-
-    /// The maximum memory in MB for histogram aggregation (default: 256).
-    pub fn max_memory_in_mb(&self) -> i32 {
-        self.params.int_or("maxMemoryInMB", 256)
-    }
-
-    /// Whether to cache node IDs for training instances (default: false).
-    pub fn cache_node_ids(&self) -> bool {
-        self.params.bool_or("cacheNodeIds", false)
-    }
-
-    /// The node ID cache checkpoint interval (default: 10).
-    pub fn checkpoint_interval(&self) -> i32 {
-        self.params.int_or("checkpointInterval", 10)
-    }
-
-    /// The impurity measure (default: "gini").
-    pub fn impurity(&self) -> &str {
-        self.params.string_or("impurity", "gini")
-    }
-
-    /// The random seed, if one is set; else Spark's default seed applies.
-    pub fn seed(&self) -> Option<i64> {
-        self.params.long_opt("seed")
-    }
-
-    /// The leaf index output column (default: empty, no column).
-    pub fn leaf_col(&self) -> &str {
-        self.params.string_or("leafCol", "")
-    }
-
-    /// The minimum fraction of total weight in each child node (default: 0).
-    pub fn min_weight_fraction_per_node(&self) -> f64 {
-        self.params.double_or("minWeightFractionPerNode", 0.0)
-    }
-
-    /// The instance weight column, if one is set.
-    pub fn weight_col(&self) -> Option<&str> {
-        self.params.string_opt("weightCol")
-    }
-
-    /// The per-class thresholds, if they are set.
-    pub fn thresholds(&self) -> Option<Vec<f64>> {
-        self.params.double_array_opt("thresholds")
-    }
-
     fn model_from_info(
         &self,
         info: proto::ml_command_result::MlOperatorInfo,
@@ -3979,8 +3766,7 @@ impl Estimator for DecisionTreeClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -4170,284 +3956,10 @@ impl GBTClassifier {
         }
     }
 
-    /// Feature vector column.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Numeric binary label column; labels must be 0 or 1.
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Predicted class output column.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Class probability output column.
-    pub fn set_probability_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("probabilityCol", value);
-        self
-    }
-
-    /// Raw class prediction output column.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Maximum tree depth, from 0 to 30.
-    pub fn set_max_depth(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxDepth", value);
-        self
-    }
-
-    /// Maximum number of bins for discretizing continuous features.
-    pub fn set_max_bins(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxBins", value);
-        self
-    }
-
-    /// Minimum number of training instances in each child node.
-    pub fn set_min_instances_per_node(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("minInstancesPerNode", value);
-        self
-    }
-
-    /// Minimum information gain for a split.
-    pub fn set_min_info_gain(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("minInfoGain", value);
-        self
-    }
-
-    /// Maximum memory in MB for histogram aggregation.
-    pub fn set_max_memory_in_mb(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxMemoryInMB", value);
-        self
-    }
-
-    /// Whether to cache node IDs for training instances.
-    pub fn set_cache_node_ids(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("cacheNodeIds", value);
-        self
-    }
-
-    /// Node ID cache checkpoint interval; -1 disables checkpointing.
-    pub fn set_checkpoint_interval(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("checkpointInterval", value);
-        self
-    }
-
-    /// Impurity setting; Spark uses variance for the regression trees in GBT.
-    pub fn set_impurity(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("impurity", value);
-        self
-    }
-
-    /// Feature subset strategy: auto, all, onethird, sqrt, log2, or a numeric count/fraction.
-    pub fn set_feature_subset_strategy(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featureSubsetStrategy", value);
-        self
-    }
-
-    /// Random seed for split-candidate row sampling, subsampling and feature sampling.
-    pub fn set_seed(mut self, value: i64) -> Self {
-        self.params = self.params.set_param_int_narrow("seed", value);
-        self
-    }
-
-    /// Fraction of training data used to train each tree, in (0, 1].
-    pub fn set_subsampling_rate(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("subsamplingRate", value);
-        self
-    }
-
-    /// Optional output vector of leaf indices, one per tree; empty disables it.
-    pub fn set_leaf_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("leafCol", value);
-        self
-    }
-
-    /// Minimum fraction of total weight in each child node, in [0, 0.5).
-    pub fn set_min_weight_fraction_per_node(mut self, value: f64) -> Self {
-        self.params = self
-            .params
-            .set_param_double("minWeightFractionPerNode", value);
-        self
-    }
-
-    /// Optional instance weight column.
-    pub fn set_weight_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("weightCol", value);
-        self
-    }
-
-    /// Per-class thresholds: predictions maximize probability divided by threshold.
-    /// Provide one nonnegative value per class, with at most one zero.
-    pub fn set_thresholds(mut self, values: impl IntoIterator<Item = f64>) -> Self {
-        self.params = self.params.set_param_double_array("thresholds", values);
-        self
-    }
-
-    /// The feature vector column (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The label column (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The predicted class output column (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// The class probability output column (default: "probability").
-    pub fn probability_col(&self) -> &str {
-        self.params.string_or("probabilityCol", "probability")
-    }
-
-    /// The raw class prediction output column (default: "rawPrediction").
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// The maximum tree depth (default: 5).
-    pub fn max_depth(&self) -> i32 {
-        self.params.int_or("maxDepth", 5)
-    }
-
-    /// The maximum number of bins for continuous features (default: 32).
-    pub fn max_bins(&self) -> i32 {
-        self.params.int_or("maxBins", 32)
-    }
-
-    /// The minimum number of training instances in each child node (default: 1).
-    pub fn min_instances_per_node(&self) -> i32 {
-        self.params.int_or("minInstancesPerNode", 1)
-    }
-
-    /// The minimum information gain for a split (default: 0).
-    pub fn min_info_gain(&self) -> f64 {
-        self.params.double_or("minInfoGain", 0.0)
-    }
-
-    /// The maximum memory in MB for histogram aggregation (default: 256).
-    pub fn max_memory_in_mb(&self) -> i32 {
-        self.params.int_or("maxMemoryInMB", 256)
-    }
-
-    /// Whether to cache node IDs for training instances (default: false).
-    pub fn cache_node_ids(&self) -> bool {
-        self.params.bool_or("cacheNodeIds", false)
-    }
-
-    /// The node ID cache checkpoint interval (default: 10).
-    pub fn checkpoint_interval(&self) -> i32 {
-        self.params.int_or("checkpointInterval", 10)
-    }
-
-    /// The impurity measure (default: "variance").
-    pub fn impurity(&self) -> &str {
-        self.params.string_or("impurity", "variance")
-    }
-
-    /// The feature subset strategy (default: "all").
-    pub fn feature_subset_strategy(&self) -> &str {
-        self.params.string_or("featureSubsetStrategy", "all")
-    }
-
-    /// The random seed, if one is set; else Spark's default seed applies.
-    pub fn seed(&self) -> Option<i64> {
-        self.params.long_opt("seed")
-    }
-
-    /// The fraction of training data used to train each tree (default: 1).
-    pub fn subsampling_rate(&self) -> f64 {
-        self.params.double_or("subsamplingRate", 1.0)
-    }
-
-    /// The leaf index output column (default: empty, no column).
-    pub fn leaf_col(&self) -> &str {
-        self.params.string_or("leafCol", "")
-    }
-
-    /// The minimum fraction of total weight in each child node (default: 0).
-    pub fn min_weight_fraction_per_node(&self) -> f64 {
-        self.params.double_or("minWeightFractionPerNode", 0.0)
-    }
-
-    /// The instance weight column, if one is set.
-    pub fn weight_col(&self) -> Option<&str> {
-        self.params.string_opt("weightCol")
-    }
-
-    /// The per-class thresholds, if they are set.
-    pub fn thresholds(&self) -> Option<Vec<f64>> {
-        self.params.double_array_opt("thresholds")
-    }
-
-    /// Loss function; Spark supports logistic loss.
-    pub fn set_loss_type(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("lossType", value);
-        self
-    }
-
-    /// The lossType value; default: "logistic".
-    pub fn loss_type(&self) -> &str {
-        self.params.string_or("lossType", "logistic")
-    }
-
-    /// Maximum number of boosting iterations (trees).
-    pub fn set_max_iter(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxIter", value);
-        self
-    }
-
-    /// The maxIter value; default: 20.
-    pub fn max_iter(&self) -> i32 {
-        self.params.int_or("maxIter", 20)
-    }
-
-    /// Learning rate for the contribution of each tree after the first, in (0, 1].
-    pub fn set_step_size(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("stepSize", value);
-        self
-    }
-
-    /// The stepSize value; default: 0.1.
-    pub fn step_size(&self) -> f64 {
-        self.params.double_or("stepSize", 0.1)
-    }
-
     /// Relative improvement tolerance for validation-set early stopping.
     pub fn set_validation_tol(mut self, value: f64) -> Self {
         self.params = self.params.set_param_double("validationTol", value);
         self
-    }
-
-    /// The validationTol value; default: 0.01.
-    pub fn validation_tol(&self) -> f64 {
-        self.params.double_or("validationTol", 0.01)
-    }
-
-    /// Optional boolean column: false rows train; true rows validate early stopping.
-    pub fn set_validation_indicator_col(mut self, value: &str) -> Self {
-        self.params = self
-            .params
-            .set_param_string("validationIndicatorCol", value);
-        self
-    }
-
-    /// The validationIndicatorCol value; unset unless explicitly configured.
-    pub fn validation_indicator_col(&self) -> Option<&str> {
-        self.params.string_opt("validationIndicatorCol")
     }
 
     fn model_from_info(
@@ -4489,8 +4001,7 @@ impl Estimator for GBTClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -4563,263 +4074,6 @@ impl RandomForestClassifier {
         }
     }
 
-    /// Feature vector column.
-    pub fn set_feature_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featuresCol", value);
-        self
-    }
-
-    /// Numeric label column of non-negative integer class indices below numClasses, which
-    /// is the label column metadata's count, else the maximum label plus one.
-    pub fn set_label_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("labelCol", value);
-        self
-    }
-
-    /// Predicted class output column.
-    pub fn set_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("predictionCol", value);
-        self
-    }
-
-    /// Class probability output column.
-    pub fn set_probability_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("probabilityCol", value);
-        self
-    }
-
-    /// Raw class prediction output column.
-    pub fn set_raw_prediction_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("rawPredictionCol", value);
-        self
-    }
-
-    /// Maximum tree depth, from 0 to 30.
-    pub fn set_max_depth(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxDepth", value);
-        self
-    }
-
-    /// Maximum number of bins for discretizing continuous features.
-    pub fn set_max_bins(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxBins", value);
-        self
-    }
-
-    /// Minimum number of training instances in each child node.
-    pub fn set_min_instances_per_node(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("minInstancesPerNode", value);
-        self
-    }
-
-    /// Minimum information gain for a split.
-    pub fn set_min_info_gain(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("minInfoGain", value);
-        self
-    }
-
-    /// Whether to prune redundant nodes, as supported by Spark 4.3.0.
-    pub fn set_prune_tree(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("pruneTree", value);
-        self
-    }
-
-    /// Maximum memory in MB for histogram aggregation.
-    pub fn set_max_memory_in_mb(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("maxMemoryInMB", value);
-        self
-    }
-
-    /// Whether to cache node IDs for training instances.
-    pub fn set_cache_node_ids(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("cacheNodeIds", value);
-        self
-    }
-
-    /// Node ID cache checkpoint interval; -1 disables checkpointing.
-    pub fn set_checkpoint_interval(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("checkpointInterval", value);
-        self
-    }
-
-    /// Impurity measure: gini or entropy.
-    pub fn set_impurity(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("impurity", value);
-        self
-    }
-
-    /// Number of trees in the forest; must be positive.
-    pub fn set_num_trees(mut self, value: i32) -> Self {
-        self.params = self.params.set_param_int32("numTrees", value);
-        self
-    }
-
-    /// Feature subset strategy: auto, all, onethird, sqrt, log2, or a numeric count/fraction.
-    pub fn set_feature_subset_strategy(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("featureSubsetStrategy", value);
-        self
-    }
-
-    /// Random seed for sampling.
-    pub fn set_seed(mut self, value: i64) -> Self {
-        self.params = self.params.set_param_int_narrow("seed", value);
-        self
-    }
-
-    /// Fraction of training data used to train each tree, in (0, 1].
-    pub fn set_subsampling_rate(mut self, value: f64) -> Self {
-        self.params = self.params.set_param_double("subsamplingRate", value);
-        self
-    }
-
-    /// Optional output vector of leaf indices, one per tree; empty disables it.
-    pub fn set_leaf_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("leafCol", value);
-        self
-    }
-
-    /// Minimum fraction of total weight in each child node, in [0, 0.5).
-    pub fn set_min_weight_fraction_per_node(mut self, value: f64) -> Self {
-        self.params = self
-            .params
-            .set_param_double("minWeightFractionPerNode", value);
-        self
-    }
-
-    /// Optional instance weight column.
-    pub fn set_weight_col(mut self, value: &str) -> Self {
-        self.params = self.params.set_param_string("weightCol", value);
-        self
-    }
-
-    /// Whether each tree samples training instances with replacement.
-    pub fn set_bootstrap(mut self, value: bool) -> Self {
-        self.params = self.params.set_param_bool("bootstrap", value);
-        self
-    }
-
-    /// Per-class thresholds: predictions maximize probability divided by threshold.
-    /// Provide one nonnegative value per class, with at most one zero.
-    pub fn set_thresholds(mut self, values: impl IntoIterator<Item = f64>) -> Self {
-        self.params = self.params.set_param_double_array("thresholds", values);
-        self
-    }
-
-    /// The feature vector column (default: "features").
-    pub fn feature_col(&self) -> &str {
-        self.params.string_or("featuresCol", "features")
-    }
-
-    /// The label column (default: "label").
-    pub fn label_col(&self) -> &str {
-        self.params.string_or("labelCol", "label")
-    }
-
-    /// The predicted class output column (default: "prediction").
-    pub fn prediction_col(&self) -> &str {
-        self.params.string_or("predictionCol", "prediction")
-    }
-
-    /// The class probability output column (default: "probability").
-    pub fn probability_col(&self) -> &str {
-        self.params.string_or("probabilityCol", "probability")
-    }
-
-    /// The raw class prediction output column (default: "rawPrediction").
-    pub fn raw_prediction_col(&self) -> &str {
-        self.params.string_or("rawPredictionCol", "rawPrediction")
-    }
-
-    /// The maximum tree depth (default: 5).
-    pub fn max_depth(&self) -> i32 {
-        self.params.int_or("maxDepth", 5)
-    }
-
-    /// The maximum number of bins for continuous features (default: 32).
-    pub fn max_bins(&self) -> i32 {
-        self.params.int_or("maxBins", 32)
-    }
-
-    /// The minimum number of training instances in each child node (default: 1).
-    pub fn min_instances_per_node(&self) -> i32 {
-        self.params.int_or("minInstancesPerNode", 1)
-    }
-
-    /// The minimum information gain for a split (default: 0).
-    pub fn min_info_gain(&self) -> f64 {
-        self.params.double_or("minInfoGain", 0.0)
-    }
-
-    /// Whether to prune redundant nodes (default: true).
-    pub fn prune_tree(&self) -> bool {
-        self.params.bool_or("pruneTree", true)
-    }
-
-    /// The maximum memory in MB for histogram aggregation (default: 256).
-    pub fn max_memory_in_mb(&self) -> i32 {
-        self.params.int_or("maxMemoryInMB", 256)
-    }
-
-    /// Whether to cache node IDs for training instances (default: false).
-    pub fn cache_node_ids(&self) -> bool {
-        self.params.bool_or("cacheNodeIds", false)
-    }
-
-    /// The node ID cache checkpoint interval (default: 10).
-    pub fn checkpoint_interval(&self) -> i32 {
-        self.params.int_or("checkpointInterval", 10)
-    }
-
-    /// The impurity measure (default: "gini").
-    pub fn impurity(&self) -> &str {
-        self.params.string_or("impurity", "gini")
-    }
-
-    /// The number of trees (default: 20).
-    pub fn num_trees(&self) -> i32 {
-        self.params.int_or("numTrees", 20)
-    }
-
-    /// The feature subset strategy (default: "auto").
-    pub fn feature_subset_strategy(&self) -> &str {
-        self.params.string_or("featureSubsetStrategy", "auto")
-    }
-
-    /// The random seed, if one is set; else Spark's default seed applies.
-    pub fn seed(&self) -> Option<i64> {
-        self.params.long_opt("seed")
-    }
-
-    /// The fraction of training data used to train each tree (default: 1).
-    pub fn subsampling_rate(&self) -> f64 {
-        self.params.double_or("subsamplingRate", 1.0)
-    }
-
-    /// The leaf index output column (default: empty, no column).
-    pub fn leaf_col(&self) -> &str {
-        self.params.string_or("leafCol", "")
-    }
-
-    /// The minimum fraction of total weight in each child node (default: 0).
-    pub fn min_weight_fraction_per_node(&self) -> f64 {
-        self.params.double_or("minWeightFractionPerNode", 0.0)
-    }
-
-    /// The instance weight column, if one is set.
-    pub fn weight_col(&self) -> Option<&str> {
-        self.params.string_opt("weightCol")
-    }
-
-    /// Whether each tree samples training instances with replacement (default: true).
-    pub fn bootstrap(&self) -> bool {
-        self.params.bool_or("bootstrap", true)
-    }
-
-    /// The per-class thresholds, if they are set.
-    pub fn thresholds(&self) -> Option<Vec<f64>> {
-        self.params.double_array_opt("thresholds")
-    }
-
     fn model_from_info(
         &self,
         info: proto::ml_command_result::MlOperatorInfo,
@@ -4834,6 +4088,7 @@ impl RandomForestClassifier {
             ),
             params: self.params.clone(),
             cached,
+            training_summary: None,
         })
     }
 }
@@ -4859,8 +4114,7 @@ impl Estimator for RandomForestClassifier {
     }
 
     fn fit_impl(&mut self, df: &DataFrame) -> spark_connect_core::error::Result<Box<dyn Model>> {
-        let info = fit_via_command(&self.operator, &self.params, df)?;
-        Ok(Box::new(self.model_from_info(info, &df.session)?))
+        Ok(Box::new(self.fit(df)?))
     }
 }
 
@@ -4873,6 +4127,9 @@ pub struct RandomForestClassificationModel {
     operator: MlOperator,
     params: Params,
     cached: CachedModel,
+    /// The target of the training summary (`<model>.summary`), which a fit sets with the transform
+    /// of its training dataset, so that the server can recreate the summary; None otherwise.
+    training_summary: Option<MlTarget>,
 }
 
 impl Transformer for RandomForestClassificationModel {
@@ -8176,7 +7433,7 @@ mod tests {
     #[test]
     fn decision_tree_classifier_getters_follow_defaults_builders_and_mutable_params() {
         let mut tree = DecisionTreeClassifier::default();
-        assert_eq!(tree.feature_col(), "features");
+        assert_eq!(tree.features_col(), "features");
         assert_eq!(tree.label_col(), "label");
         assert_eq!(tree.prediction_col(), "prediction");
         assert_eq!(tree.probability_col(), "probability");
@@ -8190,13 +7447,16 @@ mod tests {
         assert!(!tree.cache_node_ids());
         assert_eq!(tree.checkpoint_interval(), 10);
         assert_eq!(tree.impurity(), "gini");
-        assert_eq!(tree.seed(), None);
+        assert_eq!(
+            tree.seed(),
+            java_string_hash("org.apache.spark.ml.classification.DecisionTreeClassifier")
+        );
         assert_eq!(tree.weight_col(), None);
         assert_eq!(tree.leaf_col(), "");
         assert_eq!(tree.min_weight_fraction_per_node(), 0.0);
         assert_eq!(tree.thresholds(), None);
         let mut built = DecisionTreeClassifier::new()
-            .set_feature_col("input")
+            .set_features_col("input")
             .set_label_col("target")
             .set_prediction_col("class")
             .set_probability_col("probs")
@@ -8219,8 +7479,8 @@ mod tests {
             .params()
             .clone()
             .set_param_string("featuresCol", "input");
-        assert_eq!(tree.feature_col(), "input");
-        assert_eq!(built.feature_col(), tree.feature_col());
+        assert_eq!(tree.features_col(), "input");
+        assert_eq!(built.features_col(), tree.features_col());
         *tree.params_mut() = tree.params().clone().set_param_string("labelCol", "target");
         assert_eq!(tree.label_col(), "target");
         assert_eq!(built.label_col(), tree.label_col());
@@ -8285,7 +7545,7 @@ mod tests {
             .params()
             .clone()
             .set_param_int_narrow("seed", 1_i64 << 33);
-        assert_eq!(tree.seed(), Some(1_i64 << 33));
+        assert_eq!(tree.seed(), 1_i64 << 33);
         assert_eq!(built.seed(), tree.seed());
         *tree.params_mut() = tree
             .params()
@@ -8539,7 +7799,7 @@ mod tests {
     #[test]
     fn gbt_classifier_getters_follow_defaults_builders_and_mutable_params() {
         let mut tree = GBTClassifier::default();
-        assert_eq!(tree.feature_col(), "features");
+        assert_eq!(tree.features_col(), "features");
         assert_eq!(tree.label_col(), "label");
         assert_eq!(tree.prediction_col(), "prediction");
         assert_eq!(tree.probability_col(), "probability");
@@ -8553,7 +7813,10 @@ mod tests {
         assert_eq!(tree.checkpoint_interval(), 10);
         assert_eq!(tree.impurity(), "variance");
         assert_eq!(tree.feature_subset_strategy(), "all");
-        assert_eq!(tree.seed(), None);
+        assert_eq!(
+            tree.seed(),
+            java_string_hash("org.apache.spark.ml.classification.GBTClassifier")
+        );
         assert_eq!(tree.subsampling_rate(), 1.0);
         assert_eq!(tree.leaf_col(), "");
         assert_eq!(tree.min_weight_fraction_per_node(), 0.0);
@@ -8565,7 +7828,7 @@ mod tests {
         assert_eq!(tree.validation_tol(), 0.01);
         assert_eq!(tree.validation_indicator_col(), None);
         let mut built = GBTClassifier::new()
-            .set_feature_col("input")
+            .set_features_col("input")
             .set_label_col("target")
             .set_prediction_col("class")
             .set_probability_col("probs")
@@ -8594,8 +7857,8 @@ mod tests {
             .params()
             .clone()
             .set_param_string("featuresCol", "input");
-        assert_eq!(tree.feature_col(), "input");
-        assert_eq!(built.feature_col(), tree.feature_col());
+        assert_eq!(tree.features_col(), "input");
+        assert_eq!(built.features_col(), tree.features_col());
         *tree.params_mut() = tree.params().clone().set_param_string("labelCol", "target");
         assert_eq!(tree.label_col(), "target");
         assert_eq!(built.label_col(), tree.label_col());
@@ -8666,7 +7929,7 @@ mod tests {
             .params()
             .clone()
             .set_param_int_narrow("seed", 1_i64 << 33);
-        assert_eq!(tree.seed(), Some(1_i64 << 33));
+        assert_eq!(tree.seed(), 1_i64 << 33);
         assert_eq!(built.seed(), tree.seed());
         *tree.params_mut() = tree
             .params()
@@ -9643,7 +8906,7 @@ mod tests {
             ($f:expr) => {{
                 let f: &RandomForestClassifier = &$f;
                 (
-                    (f.feature_col(), f.label_col(), f.prediction_col()),
+                    (f.features_col(), f.label_col(), f.prediction_col()),
                     (f.probability_col(), f.raw_prediction_col(), f.max_depth()),
                     (f.max_bins(), f.min_instances_per_node(), f.min_info_gain()),
                     (f.prune_tree(), f.max_memory_in_mb(), f.cache_node_ids()),
@@ -9666,13 +8929,17 @@ mod tests {
                 (32, 1, 0.0),
                 (true, 256, false),
                 (10, "gini", 20),
-                ("auto", None, 1.0),
+                (
+                    "auto",
+                    java_string_hash("org.apache.spark.ml.classification.RandomForestClassifier"),
+                    1.0
+                ),
                 ("", 0.0, None),
                 (true, None)
             )
         );
         let rf = rf
-            .set_feature_col("f")
+            .set_features_col("f")
             .set_label_col("l")
             .set_prediction_col("p")
             .set_probability_col("pr")
@@ -9703,7 +8970,7 @@ mod tests {
                 (16, 2, 0.1),
                 (false, 64, true),
                 (-1, "entropy", 7),
-                ("all", Some(5), 0.5),
+                ("all", 5, 0.5),
                 ("leaves", 0.2, Some("w")),
                 (false, Some(vec![0.25, 0.75]))
             )

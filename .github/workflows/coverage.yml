@@ -169,6 +169,7 @@ jobs:
           SPARK_REMOTE=sc://localhost:15002 \
             cargo llvm-cov --no-cfg-coverage --no-report -p apache-spark-connect \
               --test e2e_functions --test e2e_columns --test e2e_dataframe \
+              --test e2e_tree_classification_api \
               --test e2e_coverage --test e2e_integration \
               --test e2e_streaming --test e2e_new_methods \
               --test e2e_lr_svc_api \
