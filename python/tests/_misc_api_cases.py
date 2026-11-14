@@ -13,7 +13,7 @@ need, so its cases are the params, the fits and the transforms only.
 
 import shutil
 
-from _ml_api_cases import Recorder, model_cases
+from _ml_api_cases import Recorder
 from _native_classes import native_class
 
 CLASSES = {
@@ -39,6 +39,7 @@ CLASSES = {
     ],
     "OneVsRest": [
         ("pyspark.ml.connect.classification", "OneVsRest", "pyspark.ml.classification"),
+        ("pyspark.ml.connect.classification", "OneVsRestModel", "pyspark.ml.classification"),
     ],
 }
 
@@ -80,9 +81,6 @@ def params_cases(rec, est, other, spec):
     """The cases of PySpark's `Params` API of the estimator `est`, of its param `spec["param"]`
     (a float) and its weight param (a str), with `other` a default estimator of the same class.
 
-    `clear` is no case of OneVsRest: PySpark's OneVsRest is a Python Params class, whose `clear`
-    removes the value, where the native `clear` is that of a JavaParams over Spark Connect, which
-    does nothing (the base's `params_api_block`). That gap is the base's, and it is not pinned.
     """
     param, value, weight, bad = spec["param"], spec["value"], spec["weight"], spec["bad"]
     getter = "get" + _cap(param)
@@ -123,8 +121,7 @@ def params_cases(rec, est, other, spec):
     rec("set_ok", lambda: (est.set(getattr(est, param), value), getattr(est, getter)())[1])
     rec("set_bad_type", lambda: est.set(getattr(est, param), bad))
     rec("set_str_param", lambda: est.set(param, value))
-    if type(est).__name__ != "OneVsRest":
-        rec("clear", lambda: (est.clear(getattr(est, param)), est.isSet(param)))
+    rec("clear", lambda: (est.clear(getattr(est, param)), est.isSet(param)))
     rec("isSet_foreign", lambda: est.isSet(getattr(other, param)))
     rec("repr_is_uid", lambda: repr(est) == est.uid)
 
@@ -149,6 +146,24 @@ def params_api_cases(name):
     else:
         rec("classifier_none", lambda: estimator().setClassifier(None).isSet("classifier"))
     return rec.out
+
+
+def _misc_model_cases(rec, est, model):
+    """The cases of a fitted model `model` of the estimator `est`: its uid, its class, its params and
+    its description. (The shared `model_cases` reads a global that another case set reads, so this
+    module has its own.)"""
+    from pyspark.ml.base import Model, Transformer
+
+    rec("model_uid_is_estimator_uid", lambda: model.uid == est.uid)
+    rec("isinstance_model", lambda: (isinstance(model, Model), isinstance(model, Transformer)))
+    rec("model_no_attribute", lambda: model.fooBarBaz)
+    rec("model_class", lambda: (type(model).__name__, type(model).__module__.split(".")[-1]))
+    rec("model_explainParams", lambda: model.explainParams())
+    rec(
+        "model_extract",
+        lambda: sorted((p.name, repr(v)) for p, v in model.extractParamMap().items()),
+    )
+    rec("repr_prefix", lambda: repr(model).split(":")[0])
 
 
 def _binary_frame(spark):
@@ -218,7 +233,7 @@ def _naive_bayes_live(rec, spark, base):
     df = _binary_frame(spark)
     est = _estimator("NaiveBayes")
     model = est.fit(df)
-    model_cases(rec, est, model)
+    _misc_model_cases(rec, est, model)
     for a in ["pi", "theta", "sigma", "numClasses", "numFeatures"]:
         rec(a, lambda a=a: getattr(model, a))
     v = Vectors.dense([1.0, 0.0])
@@ -246,7 +261,7 @@ def _mlp_live(rec, spark, base):
     df = _binary_frame(spark).drop("weight")
     est = _estimator("MultilayerPerceptronClassifier")
     model = est.fit(df)
-    model_cases(rec, est, model)
+    _misc_model_cases(rec, est, model)
     for a in ["numClasses", "numFeatures", "hasSummary"]:
         rec(a, lambda a=a: getattr(model, a))
     rec("weights_size", lambda: model.weights.size)
@@ -304,7 +319,7 @@ def _fm_live(rec, spark, base):
     df = _binary_frame(spark).drop("weight")
     est = _estimator("FMClassifier")
     model = est.fit(df)
-    model_cases(rec, est, model)
+    _misc_model_cases(rec, est, model)
     for a in ["factors", "linear", "intercept", "numClasses", "numFeatures", "hasSummary"]:
         rec(a, lambda a=a: getattr(model, a))
     v = Vectors.dense([1.0, 0.0])
@@ -348,6 +363,11 @@ def _fm_live(rec, spark, base):
     _persistence_cases(rec, est, model, model_class, df, base, SPECS["FMClassifier"], True)
 
 
+def _unset_one_vs_rest():
+    """The OneVsRest of no classifier, whose fit raises PySpark's KeyError of the classifier."""
+    return classes("OneVsRest")[0]()
+
+
 def _one_vs_rest_live(rec, spark, base):
     df = _multi_frame(spark)
     est = _estimator("OneVsRest")
@@ -357,6 +377,15 @@ def _one_vs_rest_live(rec, spark, base):
     rec("copy_parallelism", lambda: est.copy({est.parallelism: 1}).getParallelism())
     rec("isSet_classifier", lambda: est.isSet("classifier"))
     model = est.fit(df)
+    _misc_model_cases(rec, est, model)
+    rec("model_prefix", lambda: model.uid.split("_")[0])
+    rec(
+        "model_extract_classifier",
+        lambda: repr(model.getClassifier()) == repr(est.getClassifier()),
+    )
+    rec("model_getFeaturesCol", lambda: model.getFeaturesCol())
+    rec("model_isSet_parallelism", lambda: model.isSet("parallelism"))
+    rec("model_transform_map", lambda: model.transform(df, {model.predictionCol: "q"}).columns)
     rec("transform_columns", lambda: model.transform(df).columns)
     rec("transform", lambda: model.transform(df))
     rec("fit_map", lambda: est.fit(df, {est.parallelism: 1}).transform(df))
@@ -368,6 +397,7 @@ def _one_vs_rest_live(rec, spark, base):
         ),
     )
     rec("fit_list", lambda: [m.transform(df).count() for m in est.fit(df, [{}, {}])])
+    rec("fit_without_classifier", lambda: _unset_one_vs_rest().fit(df))
 
 
 def live_cases(name, spark, base):

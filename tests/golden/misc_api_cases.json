@@ -76,6 +76,10 @@
     "ok",
     -2.114574172
    ],
+   "isinstance_model": [
+    "ok",
+    "(True, True)"
+   ],
    "linear": [
     "ok",
     "DenseVector([3.6868, -2.0958])"
@@ -114,6 +118,10 @@
     "ok",
     "True"
    ],
+   "model_class": [
+    "ok",
+    "('FMClassificationModel', 'classification')"
+   ],
    "model_explainParams": [
     "ok",
     "\"factorSize: Dimensionality of the factor vectors, which are used to get pairwise interactions between variables (default: 8, current: 2)\\nfeaturesCol: features column name. (default: features)\\nfitIntercept: whether to fit an intercept term. (default: True)\\nfitLinear: whether to fit linear term (aka 1-way term) (default: True)\\ninitStd: standard deviation of initial coefficients (default: 0.01)\\nlabelCol: label column name. (default: label)\\nmaxIter: max number of iterations (>= 0). (default: 100, current: 5)\\nminiBatchFraction: fraction of the input data set that should be used for one iteration of gradient descent (default: 1.0)\\npredictionCol: prediction column name. (default: prediction)\\nprobabilityCol: Column name for predicted class conditional probabilities. Note: Not all models output well-calibrated probability estimates! These probabilities should be treated as confidences, not precise probabilities. (default: probability)\\nrawPredictionCol: raw prediction (a.k.a. confidence) column name. (default: rawPrediction)\\nregParam: regularization parameter (>= 0). (default: 0.0)\\nseed: random seed. (default: <hash FMClassifier>, current: 1)\\nsolver: The solver algorithm for optimization. Supported options: gd, adamW. (Default adamW) (default: adamW)\\nstepSize: Step size to be used for each iteration of optimization (>= 0). (default: 1.0)\\nthresholds: Thresholds in multi-class classification to adjust the probability of predicting each class. Array must have length equal to the number of classes, with values > 0, excepting that at most one value may be 0. The class with largest value p/t is predicted, where p is the original probability of that class and t is the class's threshold. (undefined)\\ntol: the convergence tolerance for iterative algorithms (>= 0). (default: 1e-06)\\nweightCol: weight column name. If this is not set or empty, we treat all instance weights as 1.0. (undefined)\""
@@ -146,6 +154,10 @@
    "model_getSolver": [
     "ok",
     "'adamW'"
+   ],
+   "model_no_attribute": [
+    "AttributeError",
+    "'FMClassificationModel' object has no attribute 'fooBarBaz'"
    ],
    "model_save": [
     "ok",
@@ -709,6 +721,10 @@
     "ok",
     "True"
    ],
+   "isinstance_model": [
+    "ok",
+    "(True, True)"
+   ],
    "loaded_hasSummary": [
     "ok",
     "False"
@@ -742,6 +758,10 @@
    "loaded_uid": [
     "ok",
     "True"
+   ],
+   "model_class": [
+    "ok",
+    "('MultilayerPerceptronClassificationModel', 'classification')"
    ],
    "model_explainParams": [
     "ok",
@@ -779,6 +799,10 @@
    "model_isSet_maxIter": [
     "ok",
     "True"
+   ],
+   "model_no_attribute": [
+    "AttributeError",
+    "'MultilayerPerceptronClassificationModel' object has no attribute 'fooBarBaz'"
    ],
    "model_save": [
     "ok",
@@ -1285,6 +1309,10 @@
     "ok",
     2.0
    ],
+   "isinstance_model": [
+    "ok",
+    "(True, True)"
+   ],
    "loaded_smoothing": [
     "ok",
     1.0
@@ -1311,6 +1339,10 @@
    "loaded_uid": [
     "ok",
     "True"
+   ],
+   "model_class": [
+    "ok",
+    "('NaiveBayesModel', 'classification')"
    ],
    "model_explainParams": [
     "ok",
@@ -1348,6 +1380,10 @@
    "model_isSet_smoothing": [
     "ok",
     "True"
+   ],
+   "model_no_attribute": [
+    "AttributeError",
+    "'NaiveBayesModel' object has no attribute 'fooBarBaz'"
    ],
    "model_save": [
     "ok",
@@ -1725,6 +1761,10 @@
      ]
     }
    ],
+   "fit_without_classifier": [
+    "KeyError",
+    "Param(parent='OneVsRest_<uid>', name='classifier', doc='base binary classifier')"
+   ],
    "getClassifier_maxIter": [
     "ok",
     "5"
@@ -1736,6 +1776,65 @@
    "isSet_classifier": [
     "ok",
     "True"
+   ],
+   "isinstance_model": [
+    "ok",
+    "(True, True)"
+   ],
+   "model_class": [
+    "ok",
+    "('OneVsRestModel', 'classification')"
+   ],
+   "model_explainParams": [
+    "ok",
+    "'classifier: base binary classifier (current: LinearSVC_<uid>)\\nfeaturesCol: features column name. (default: features)\\nlabelCol: label column name. (default: label)\\npredictionCol: prediction column name. (default: prediction)\\nrawPredictionCol: raw prediction (a.k.a. confidence) column name. (default: rawPrediction)\\nweightCol: weight column name. If this is not set or empty, we treat all instance weights as 1.0. (undefined)'"
+   ],
+   "model_extract": [
+    "ok",
+    [
+     "('classifier', 'LinearSVC_<uid>')",
+     "('featuresCol', \"'features'\")",
+     "('labelCol', \"'label'\")",
+     "('predictionCol', \"'prediction'\")",
+     "('rawPredictionCol', \"'rawPrediction'\")"
+    ]
+   ],
+   "model_extract_classifier": [
+    "ok",
+    "True"
+   ],
+   "model_getFeaturesCol": [
+    "ok",
+    "'features'"
+   ],
+   "model_isSet_parallelism": [
+    "AttributeError",
+    "'OneVsRestModel' object has no attribute 'parallelism'"
+   ],
+   "model_no_attribute": [
+    "AttributeError",
+    "'OneVsRestModel' object has no attribute 'fooBarBaz'"
+   ],
+   "model_prefix": [
+    "ok",
+    "'OneVsRestModel'"
+   ],
+   "model_transform_map": [
+    "ok",
+    [
+     "'label'",
+     "'features'",
+     "'rawPrediction'",
+     "'q'"
+    ]
+   ],
+   "model_uid_is_estimator_uid": [
+    "ok",
+    "False"
+   ],
+   "repr_prefix": [
+    "ok",
+    "'OneVsRestModel_<uid>'"
    ],
    "transform": [
     "ok",
@@ -1770,6 +1869,10 @@
    "classifier_none": [
     "ok",
     "True"
+   ],
+   "clear": [
+    "ok",
+    "(None, False)"
    ],
    "copy_bad_extra": [
     "TypeError",

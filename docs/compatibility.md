@@ -1065,22 +1065,20 @@ persistence of the meta-estimators, whose writers PySpark runs on the client.
 
 These additions cover native estimator construction, parameters, fitting and
 DataFrame transforms. In Python, the `OneVsRest` estimator has the Params API of
-`pyspark.ml` (its `classifier` param included), `setClassifier` and `fitMultiple`, and
-its `fit` returns the generic native model (`MLModel`), which has `transform`. The
-differences from PySpark that remain are these:
+`pyspark.ml` (its `classifier` param included), `setClassifier`, `fitMultiple` and `clear`,
+and its `fit` returns the typed `OneVsRestModel`, which has `classifier`, the other params, and
+`transform`, and whose `uid` is its own, as PySpark's. The differences from PySpark that remain
+are these:
 
-- `fit` does not return a `OneVsRestModel`: its `models` (the typed submodels), its
-  `classifier`, `uid` and params, and its `copy` of the submodels are not exposed. The
-  native typed model needs the base's support for identity params and Python-side
-  attributes.
-- `write`, `save`, `read` and `load` of `OneVsRest` raise `CONNECT_ML.UNSUPPORTED_EXCEPTION`:
-  PySpark writes a `OneVsRest` in its own client-side format, which the server does not
-  have.
-- `clear` does nothing, as the native classes' `clear` of a JavaParams over Spark Connect;
-  PySpark's OneVsRest removes the value.
+- `models` (the typed submodels, each of the uid of the classifier) raises `NOT_IMPLEMENTED`:
+  the core keeps the submodels of its composite model private, and the composite has no
+  server-side object to fetch them from. It needs the core to expose them.
+- `write` and `save` of `OneVsRest` raise `CONNECT_ML.UNSUPPORTED_EXCEPTION`, and `read` and
+  `load` of it raise the same kind of error: PySpark writes a `OneVsRest` in its own
+  client-side format (persistence of the meta-algorithms is not in this change). `write` of
+  `OneVsRestModel` raises `ValueError`, as the composite model has no server-side object to save.
 - `setClassifier` and the `classifier` keyword raise `TypeError` for an object that is not a
   native binary classifier, when they are set; PySpark accepts any object and fails at `fit`.
-
 
 ## Native AFTSurvivalRegression, IsotonicRegression and FMRegressor
 
