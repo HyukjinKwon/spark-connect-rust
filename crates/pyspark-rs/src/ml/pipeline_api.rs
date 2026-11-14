@@ -503,19 +503,68 @@ pub(super) fn load_with_stages<'py>(
     let metadata = interruptible(py, session, || {
         load_metadata(session, path, None).map_err(Box::new)
     })?;
-    let uid = metadata["uid"].as_str().unwrap_or_default().to_string();
-    let stage_uids = metadata["paramMap"]["stageUids"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let stage_uids = json_item(json_item(&metadata, "paramMap")?, "stageUids")?;
+    let stage_uids = json_array(stage_uids)?;
     let stages_dir = join_path(path, "stages");
     let stages = PyList::empty(py);
     for (index, stage_uid) in stage_uids.iter().enumerate() {
-        let stage_uid = stage_uid.as_str().unwrap_or_default();
-        let stage_path = stage_path(stage_uid, index, stage_uids.len(), &stages_dir);
+        let stage_path = stage_path(json_str(stage_uid)?, index, stage_uids.len(), &stages_dir);
         stages.append(load_params_instance(py, spark, session, &stage_path)?)?;
     }
+    let uid = json_str(json_item(&metadata, "uid")?)?.to_string();
     Ok((uid, stages))
+}
+
+/// `value[key]` of the object `value` of a metadata, as Python indexes its dict: a KeyError of
+/// `key` when the object has no such key, and a TypeError when `value` is no object.
+pub(super) fn json_item<'a>(
+    value: &'a serde_json::Value,
+    key: &str,
+) -> PyResult<&'a serde_json::Value> {
+    match value {
+        serde_json::Value::Object(object) => object
+            .get(key)
+            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string())),
+        other => Err(PyTypeError::new_err(format!(
+            "{} indices must be integers or slices, not str",
+            json_type_name(other)
+        ))),
+    }
+}
+
+/// The elements of the list `value` of a metadata, of which Python iterates; a TypeError when it
+/// is not one.
+pub(super) fn json_array(value: &serde_json::Value) -> PyResult<&[serde_json::Value]> {
+    value.as_array().map(Vec::as_slice).ok_or_else(|| {
+        PyTypeError::new_err(format!(
+            "'{}' object is not iterable",
+            json_type_name(value)
+        ))
+    })
+}
+
+/// The string `value` of a metadata, a TypeError when it is not one (as Python's `+` of a string
+/// and another object raises).
+pub(super) fn json_str(value: &serde_json::Value) -> PyResult<&str> {
+    value.as_str().ok_or_else(|| {
+        PyTypeError::new_err(format!(
+            "can only concatenate str (not \"{}\") to str",
+            json_type_name(value)
+        ))
+    })
+}
+
+/// The name of the Python type of `json.loads` of a JSON value.
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "NoneType",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(n) if n.is_f64() => "float",
+        serde_json::Value::Number(_) => "int",
+        serde_json::Value::String(_) => "str",
+        serde_json::Value::Array(_) => "list",
+        serde_json::Value::Object(_) => "dict",
+    }
 }
 
 /// The object saved at `path`, as `DefaultParamsReader.loadParamsInstance`: of the class of its
@@ -532,7 +581,13 @@ pub(super) fn load_params_instance<'py>(
     let metadata = interruptible(py, session, || {
         load_metadata(session, path, None).map_err(Box::new)
     })?;
-    let class = metadata["class"].as_str().unwrap_or_default();
+    let class = json_item(&metadata, "class")?;
+    let class = class.as_str().ok_or_else(|| {
+        pyo3::exceptions::PyAttributeError::new_err(format!(
+            "'{}' object has no attribute 'startswith'",
+            json_type_name(class)
+        ))
+    })?;
     let python_class = if class.starts_with("pyspark.ml.") {
         class.to_string()
     } else {
@@ -544,7 +599,8 @@ pub(super) fn load_params_instance<'py>(
 /// The Python class of the fully qualified name `name`, as `DefaultParamsReader.__get_class`, or
 /// the native class of `pyspark.ml.connect` of the same module and name, if it loads.
 fn class_of<'py>(py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyAny>> {
-    let (module, class) = name.rsplit_once('.').unwrap_or(("builtins", name));
+    // As `__get_class`, a name of no module imports the module "", which raises its ValueError.
+    let (module, class) = name.rsplit_once('.').unwrap_or(("", name));
     if let Some(rest) = module.strip_prefix("pyspark.ml.") {
         if !rest.starts_with("connect") {
             let native = py

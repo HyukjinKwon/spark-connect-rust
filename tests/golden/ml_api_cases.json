@@ -1486,6 +1486,10 @@
     "ok",
     "(True, ['KMeans', 'LinearSVC'], True, 5)"
    ],
+   "load_not_a_pipeline": [
+    "KeyError",
+    "'stageUids'"
+   ],
    "metadata": [
     "ok",
     "{'class': 'pyspark.ml.pipeline.Pipeline', 'sparkVersion': '4.3.0', 'uid': 'Pipeline_<uid>', 'paramMap': {'stageUids': ['KMeans_<uid>', 'LinearSVC_<uid>'], 'language': 'Python'}, 'defaultParamMap': {}}"
@@ -1493,6 +1497,10 @@
    "model_load": [
     "ok",
     "(True, ['KMeansModel', 'LinearSVCModel'])"
+   ],
+   "model_load_not_a_pipeline": [
+    "KeyError",
+    "'stageUids'"
    ],
    "model_load_transform": [
     "ok",

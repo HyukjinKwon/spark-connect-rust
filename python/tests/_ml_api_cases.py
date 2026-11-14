@@ -497,6 +497,12 @@ def _pipeline_live_cases(rec, spark, base):
         lambda: sorted(d.split("_", 1) for d in os.listdir(base + "/pipeline/stages")),
     )
     rec("stage_metadata", lambda: _metadata(base + "/pipeline/stages/1_" + svc.uid))
+    # A directory of another object has no stageUids in its params.
+    rec("load_not_a_pipeline", lambda: pipeline_class.load(base + "/pipeline/stages/1_" + svc.uid))
+    rec(
+        "model_load_not_a_pipeline",
+        lambda: model_class.load(base + "/pipeline/stages/1_" + svc.uid),
+    )
     loaded = pipeline_class.load(base + "/pipeline")
     rec(
         "load",
