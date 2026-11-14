@@ -394,6 +394,12 @@ def _native(name):
     return native_class("pyspark.ml.connect.classification", name, "pyspark.ml.classification")
 
 
+def _summary_of(model):
+    """The training summary of a model: a method of most classes, and a property of LR."""
+    summary = model.summary
+    return summary() if callable(summary) else summary
+
+
 def _submodel_cases(rec, prefix, model, classifier):
     """The cases of the `models` of a fitted OneVsRestModel `model`, of the classifier `classifier`:
     their classes, uids, label columns, params and summaries."""
@@ -422,7 +428,7 @@ def _submodel_cases(rec, prefix, model, classifier):
     rec(
         prefix + "models_summary_accuracy",
         lambda: [
-            s.summary().accuracy for s in model.models if getattr(s, "hasSummary", False)
+            _summary_of(s).accuracy for s in model.models if getattr(s, "hasSummary", False)
         ],
     )
 
@@ -446,6 +452,7 @@ def _one_vs_rest_live(rec, spark, base):
             "MultilayerPerceptronClassifier",
             {"maxIter": 5, "layers": [2, 4, 2], "seed": 1},
         ),
+        ("ovr_lr_", "LogisticRegression", {"maxIter": 5, "regParam": 0.01}),
     ]:
         classifier = _native(name)(**kwargs)
         fitted = _native("OneVsRest")(classifier=classifier).fit(df)

@@ -2050,6 +2050,118 @@
      "True"
     ]
    ],
+   "ovr_lr_models_hasSummary": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_lr_models_isSet_labelCol": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
+   "ovr_lr_models_labelCols": [
+    "ok",
+    [
+     "'mc2b$0'",
+     "'mc2b$1'",
+     "'mc2b$2'"
+    ]
+   ],
+   "ovr_lr_models_len": [
+    "ok",
+    "3"
+   ],
+   "ovr_lr_models_params": [
+    "ok",
+    [
+     [
+      "('aggregationDepth', '2')",
+      "('elasticNetParam', '0.0')",
+      "('family', \"'auto'\")",
+      "('featuresCol', \"'features'\")",
+      "('fitIntercept', 'True')",
+      "('labelCol', \"'mc2b$0'\")",
+      "('maxBlockSizeInMB', '0.0')",
+      "('maxIter', '5')",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('regParam', '0.01')",
+      "('standardization', 'True')",
+      "('threshold', '0.5')",
+      "('tol', '1e-06')"
+     ],
+     [
+      "('aggregationDepth', '2')",
+      "('elasticNetParam', '0.0')",
+      "('family', \"'auto'\")",
+      "('featuresCol', \"'features'\")",
+      "('fitIntercept', 'True')",
+      "('labelCol', \"'mc2b$1'\")",
+      "('maxBlockSizeInMB', '0.0')",
+      "('maxIter', '5')",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('regParam', '0.01')",
+      "('standardization', 'True')",
+      "('threshold', '0.5')",
+      "('tol', '1e-06')"
+     ],
+     [
+      "('aggregationDepth', '2')",
+      "('elasticNetParam', '0.0')",
+      "('family', \"'auto'\")",
+      "('featuresCol', \"'features'\")",
+      "('fitIntercept', 'True')",
+      "('labelCol', \"'mc2b$2'\")",
+      "('maxBlockSizeInMB', '0.0')",
+      "('maxIter', '5')",
+      "('predictionCol', \"'prediction'\")",
+      "('probabilityCol', \"'probability'\")",
+      "('rawPredictionCol', \"'rawPrediction'\")",
+      "('regParam', '0.01')",
+      "('standardization', 'True')",
+      "('threshold', '0.5')",
+      "('tol', '1e-06')"
+     ]
+    ]
+   ],
+   "ovr_lr_models_same_list": [
+    "ok",
+    "True"
+   ],
+   "ovr_lr_models_summary_accuracy": [
+    "ok",
+    [
+     1.0,
+     1.0,
+     1.0
+    ]
+   ],
+   "ovr_lr_models_types": [
+    "ok",
+    [
+     "('LogisticRegressionModel', 'classification')",
+     "('LogisticRegressionModel', 'classification')",
+     "('LogisticRegressionModel', 'classification')"
+    ]
+   ],
+   "ovr_lr_models_uids_are_classifier": [
+    "ok",
+    [
+     "True",
+     "True",
+     "True"
+    ]
+   ],
    "ovr_mlp_models_hasSummary": [
     "ok",
     [
