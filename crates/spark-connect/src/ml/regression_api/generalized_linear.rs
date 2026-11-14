@@ -77,7 +77,7 @@ impl GeneralizedLinearRegressionModel {
         let target = self.model_target()?;
         let output = fetch(&target, "evaluate", vec![FetchArg::Input(dataset.clone())])?;
         Ok(GeneralizedLinearRegressionSummary {
-            target: evaluated_summary(target.session(), output)?,
+            target: evaluated_summary(&target, output)?,
         })
     }
 
