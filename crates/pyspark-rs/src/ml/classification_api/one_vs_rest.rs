@@ -44,12 +44,16 @@ impl PyOneVsRestModel {
         let mut core =
             object::ModelCore::fitted(py, model, &fit.train, object::SummaryDataset::None, None)?;
         core.model.operator_mut().uid = params_api::random_uid(py, "OneVsRestModel")?;
-        Ok(Self {
+        let this = Self {
             core,
             raw: vec![("classifier", classifier)],
             fit: Some(fit),
             models: OnceLock::new(),
-        })
+        };
+        // As PySpark's classifier fits make their models, with their summaries, during the fit.
+        let models = build_submodels(py, &this)?;
+        let _ = this.models.set(models);
+        Ok(this)
     }
 
     fn __from_read<'py>(py: Python<'py>, read: ReadResult) -> PyResult<Py<PyAny>> {
@@ -116,6 +120,9 @@ fn classifier_defaults(classifier: &Bound<'_, PyAny>) -> PyResult<params_api::Ow
         return params_api::fit_defaults(value);
     }
     if let Ok(value) = classifier.cast::<crate::ml::PyMultilayerPerceptronClassifier>() {
+        return params_api::fit_defaults(value);
+    }
+    if let Ok(value) = classifier.cast::<crate::ml::PyLogisticRegression>() {
         return params_api::fit_defaults(value);
     }
     Ok(Vec::new())
@@ -210,7 +217,18 @@ fn submodel(
             Ok(Py::new(py, typed)?.into_any())
         }
         SubModel::LogisticRegression(model) => {
-            generic_submodel(py, with_label(Box::new(model)), &binary)
+            let mut typed = PyLogisticRegressionModel::fitted(
+                py,
+                with_label(Box::new(model)),
+                &binary,
+                object::SummaryDataset::Train,
+            )?;
+            params_api::copy_defaults(
+                py,
+                params_api::clone_own_defaults(py, defaults),
+                &mut typed,
+            )?;
+            Ok(Py::new(py, typed)?.into_any())
         }
         SubModel::DecisionTreeClassification(model) => {
             generic_submodel(py, with_label(Box::new(model)), &binary)
@@ -225,37 +243,40 @@ fn submodel(
     }
 }
 
-/// The `models` of `slf`: its typed submodels, made at the first access from the composite's
-/// submodels, with no request to the server.
-fn submodels(slf: &Bound<'_, PyOneVsRestModel>) -> PyResult<Py<PyList>> {
-    let py = slf.py();
-    if let Some(list) = slf.try_borrow()?.models.get() {
-        return Ok(list.clone_ref(py));
-    }
-    let list = {
-        let this = slf.try_borrow()?;
-        let Some(fit) = this.fit.as_ref() else {
-            return Err(PyValueError::new_err(
-                "the models of a loaded OneVsRestModel are not held",
-            ));
-        };
-        let Some(composite) = this.core.model.downcast_ref::<CoreOneVsRestModel>() else {
-            return Err(PyValueError::new_err(
-                "the model of a OneVsRestModel is not a composite of its classes",
-            ));
-        };
-        let defaults = match this.classifier(py) {
-            Some(classifier) => classifier_defaults(classifier.bind(py))?,
-            None => Vec::new(),
-        };
-        let list = PyList::empty(py);
-        for (index, sub) in composite.models().into_iter().enumerate() {
-            list.append(submodel(py, index, sub, fit, &defaults)?)?;
-        }
-        list.unbind()
+/// The submodels of the model `this`, typed as PySpark's classifier fits make them, of the
+/// composite's submodels, in the order of the classes. They are made by the fit, with the
+/// summaries that the classes' fits make.
+fn build_submodels(py: Python<'_>, this: &PyOneVsRestModel) -> PyResult<Py<PyList>> {
+    let Some(fit) = this.fit.as_ref() else {
+        return Err(PyValueError::new_err(
+            "the models of a loaded OneVsRestModel are not held",
+        ));
     };
-    let _ = slf.try_borrow()?.models.set(list.clone_ref(py));
-    Ok(list)
+    let Some(composite) = this.core.model.downcast_ref::<CoreOneVsRestModel>() else {
+        return Err(PyValueError::new_err(
+            "the model of a OneVsRestModel is not a composite of its classes",
+        ));
+    };
+    let defaults = match this.classifier(py) {
+        Some(classifier) => classifier_defaults(classifier.bind(py))?,
+        None => Vec::new(),
+    };
+    let list = PyList::empty(py);
+    for (index, sub) in composite.models().into_iter().enumerate() {
+        list.append(submodel(py, index, sub, fit, &defaults)?)?;
+    }
+    Ok(list.unbind())
+}
+
+/// The `models` of `slf`: the typed submodels that the fit made.
+fn submodels(slf: &Bound<'_, PyOneVsRestModel>) -> PyResult<Py<PyList>> {
+    let this = slf.try_borrow()?;
+    match this.models.get() {
+        Some(list) => Ok(list.clone_ref(slf.py())),
+        None => Err(PyValueError::new_err(
+            "the models of a loaded OneVsRestModel are not held",
+        )),
+    }
 }
 
 impl params_api::ParamsHolder for PyOneVsRestModel {
