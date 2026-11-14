@@ -1063,20 +1063,20 @@ gives the classifier. Single-vector prediction is on the submodels. Persistence 
 available for `OneVsRest` and `OneVsRestModel`: their save and load remain pending with the
 persistence of the meta-estimators, whose writers PySpark runs on the client.
 
-These additions cover native estimator construction, parameters, fitting and
-DataFrame transforms. In Python, the `OneVsRest` estimator has the Params API of
-`pyspark.ml` (its `classifier` param included), `setClassifier`, `fitMultiple` and `clear`,
-and its `fit` returns the typed `OneVsRestModel`, which has `classifier`, the other params, and
-`transform`, and whose `uid` is its own, as PySpark's. The differences from PySpark that remain
-are these:
+In Python, the `OneVsRest` estimator has the Params API of `pyspark.ml` (its `classifier` param
+included), `setClassifier`, `fitMultiple` and `clear`, and its `fit` returns the typed
+`OneVsRestModel`, which has `classifier`, the other params, `transform`, and a `uid` of its own,
+as PySpark's. Its `models` are the typed submodels, each with the uid of the classifier, the
+binary label of its class as `labelCol`, the classifier's params, and its training summary. They
+are made from the fitted submodels without a request. The submodels of a classifier that has no
+typed Python class yet are generic models. The per-class fits send the same requests as PySpark's,
+except that PySpark also reads `numClasses` of each submodel after its fit, which this client does
+not send. The remaining differences from PySpark are these:
 
-- `models` (the typed submodels, each of the uid of the classifier) raises `NOT_IMPLEMENTED`:
-  the core keeps the submodels of its composite model private, and the composite has no
-  server-side object to fetch them from. It needs the core to expose them.
-- `write` and `save` of `OneVsRest` raise `CONNECT_ML.UNSUPPORTED_EXCEPTION`, and `read` and
-  `load` of it raise the same kind of error: PySpark writes a `OneVsRest` in its own
-  client-side format (persistence of the meta-algorithms is not in this change). `write` of
-  `OneVsRestModel` raises `ValueError`, as the composite model has no server-side object to save.
+- Saving and loading a `OneVsRest` or a `OneVsRestModel` is not available yet. `write` and `save`
+  of `OneVsRest` raise `CONNECT_ML.UNSUPPORTED_EXCEPTION`, and `read` and `load` of it raise
+  the same kind of error, because PySpark writes these classes on the client. `write` of
+  `OneVsRestModel` raises `ValueError`, since the model has no server-side object to save.
 - `setClassifier` and the `classifier` keyword raise `TypeError` for an object that is not a
   native binary classifier, when they are set; PySpark accepts any object and fails at `fit`.
 
