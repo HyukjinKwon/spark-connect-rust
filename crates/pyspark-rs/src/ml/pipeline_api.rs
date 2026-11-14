@@ -7,7 +7,7 @@
 //! other.
 use super::*;
 use spark_connect::ml::{
-    join_path, json_object, load_metadata, save_metadata, stage_path, Metadata,
+    join_path, json_object, load_metadata_text, save_metadata, stage_path, Metadata,
 };
 use spark_connect::SparkSession;
 
@@ -500,71 +500,46 @@ pub(super) fn load_with_stages<'py>(
     session: &SparkSession,
     path: &str,
 ) -> PyResult<(String, Bound<'py, PyList>)> {
-    let metadata = interruptible(py, session, || {
-        load_metadata(session, path, None).map_err(Box::new)
-    })?;
-    let stage_uids = json_item(json_item(&metadata, "paramMap")?, "stageUids")?;
-    let stage_uids = json_array(stage_uids)?;
+    let metadata = load_metadata_dict(py, session, path)?;
+    let stage_uids = metadata.get_item("paramMap")?.get_item("stageUids")?;
     let stages_dir = join_path(path, "stages");
     let stages = PyList::empty(py);
-    for (index, stage_uid) in stage_uids.iter().enumerate() {
-        let stage_path = stage_path(json_str(stage_uid)?, index, stage_uids.len(), &stages_dir);
+    for (index, stage_uid) in stage_uids.try_iter()?.enumerate() {
+        let stage_uid = metadata_str(&stage_uid?)?;
+        let stage_path = stage_path(&stage_uid, index, stage_uids.len()?, &stages_dir);
         stages.append(load_params_instance(py, spark, session, &stage_path)?)?;
     }
-    let uid = json_str(json_item(&metadata, "uid")?)?.to_string();
+    let uid = metadata_str(&metadata.get_item("uid")?)?;
     Ok((uid, stages))
 }
 
-/// `value[key]` of the object `value` of a metadata, as Python indexes its dict: a KeyError of
-/// `key` when the object has no such key, and a TypeError when `value` is no object.
-pub(super) fn json_item<'a>(
-    value: &'a serde_json::Value,
-    key: &str,
-) -> PyResult<&'a serde_json::Value> {
-    match value {
-        serde_json::Value::Object(object) => object
-            .get(key)
-            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string())),
-        other => Err(PyTypeError::new_err(format!(
-            "{} indices must be integers or slices, not str",
-            json_type_name(other)
-        ))),
-    }
+/// The metadata at `<path>/metadata`, as `DefaultParamsReader.loadMetadata` and `_parseMetaData`
+/// read it: `json.loads` of its text, a dict of Python's values (of the floats NaN and Infinity and
+/// the ints of any size that Python writes), whose `class` it reads (a KeyError if it has none).
+pub(super) fn load_metadata_dict<'py>(
+    py: Python<'py>,
+    session: &SparkSession,
+    path: &str,
+) -> PyResult<Bound<'py, PyAny>> {
+    let text = interruptible(py, session, || {
+        load_metadata_text(session, path).map_err(Box::new)
+    })?;
+    let metadata = py.import("json")?.call_method1("loads", (text,))?;
+    metadata.get_item("class")?;
+    Ok(metadata)
 }
 
-/// The elements of the list `value` of a metadata, of which Python iterates; a TypeError when it
-/// is not one.
-pub(super) fn json_array(value: &serde_json::Value) -> PyResult<&[serde_json::Value]> {
-    value.as_array().map(Vec::as_slice).ok_or_else(|| {
-        PyTypeError::new_err(format!(
-            "'{}' object is not iterable",
-            json_type_name(value)
-        ))
+/// The string `value` of a metadata, of which Python makes a path or a uid; a TypeError of
+/// Python's `+` of a string when it is none.
+pub(super) fn metadata_str(value: &Bound<'_, PyAny>) -> PyResult<String> {
+    value.extract::<String>().map_err(|_| {
+        let name = value
+            .get_type()
+            .name()
+            .map(|name| name.to_string())
+            .unwrap_or_default();
+        PyTypeError::new_err(format!("can only concatenate str (not \"{name}\") to str"))
     })
-}
-
-/// The string `value` of a metadata, a TypeError when it is not one (as Python's `+` of a string
-/// and another object raises).
-pub(super) fn json_str(value: &serde_json::Value) -> PyResult<&str> {
-    value.as_str().ok_or_else(|| {
-        PyTypeError::new_err(format!(
-            "can only concatenate str (not \"{}\") to str",
-            json_type_name(value)
-        ))
-    })
-}
-
-/// The name of the Python type of `json.loads` of a JSON value.
-fn json_type_name(value: &serde_json::Value) -> &'static str {
-    match value {
-        serde_json::Value::Null => "NoneType",
-        serde_json::Value::Bool(_) => "bool",
-        serde_json::Value::Number(n) if n.is_f64() => "float",
-        serde_json::Value::Number(_) => "int",
-        serde_json::Value::String(_) => "str",
-        serde_json::Value::Array(_) => "list",
-        serde_json::Value::Object(_) => "dict",
-    }
 }
 
 /// The object saved at `path`, as `DefaultParamsReader.loadParamsInstance`: of the class of its
@@ -578,20 +553,19 @@ pub(super) fn load_params_instance<'py>(
     path: &str,
 ) -> PyResult<Bound<'py, PyAny>> {
     let _ = spark;
-    let metadata = interruptible(py, session, || {
-        load_metadata(session, path, None).map_err(Box::new)
-    })?;
-    let class = json_item(&metadata, "class")?;
-    let class = class.as_str().ok_or_else(|| {
-        pyo3::exceptions::PyAttributeError::new_err(format!(
-            "'{}' object has no attribute 'startswith'",
-            json_type_name(class)
-        ))
-    })?;
-    let python_class = if class.starts_with("pyspark.ml.") {
-        class.to_string()
+    let metadata = load_metadata_dict(py, session, path)?;
+    let class = metadata.get_item("class")?;
+    // As `isPythonParamsInstance` and the `replace` of a JVM class, of the errors of a class that
+    // is no string.
+    let python_class: String = if class
+        .call_method1("startswith", ("pyspark.ml.",))?
+        .is_truthy()?
+    {
+        class.extract()?
     } else {
-        class.replace("org.apache.spark", "pyspark")
+        class
+            .call_method1("replace", ("org.apache.spark", "pyspark"))?
+            .extract()?
     };
     class_of(py, &python_class)?.call_method1("load", (path,))
 }
