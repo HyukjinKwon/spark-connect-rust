@@ -110,14 +110,10 @@ pub fn save_metadata(session: &SparkSession, path: &str, metadata: &str) -> Resu
         .text(&join_path(path, "metadata"))
 }
 
-/// The metadata at `<path>/metadata`, as `loadMetadata` reads it: the JSON of the first line of
-/// the text files there. When `expected_class` is given, a metadata of another class is an error,
-/// as `_parseMetaData` raises it.
-pub fn load_metadata(
-    session: &SparkSession,
-    path: &str,
-    expected_class: Option<&str>,
-) -> Result<serde_json::Value> {
+/// The text of the metadata at `<path>/metadata`, as `loadMetadata` reads it: the first line of
+/// the text files there, the JSON of the metadata as Python writes it (of `NaN` and `Infinity`
+/// for those floats, which [`load_metadata`] does not parse).
+pub fn load_metadata_text(session: &SparkSession, path: &str) -> Result<String> {
     let metadata_path = join_path(path, "metadata");
     let row = session
         .read()
@@ -126,10 +122,25 @@ pub fn load_metadata(
         .ok_or_else(|| {
             SparkError::value_msg(format!("no metadata was found at {metadata_path}"))
         })?;
-    let text = row.get(0).and_then(|value| value.as_str()).ok_or_else(|| {
-        SparkError::value_msg(format!("the metadata at {metadata_path} is not a string"))
-    })?;
-    let metadata: serde_json::Value = serde_json::from_str(text)
+    row.get(0)
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            SparkError::value_msg(format!("the metadata at {metadata_path} is not a string"))
+        })
+}
+
+/// The metadata at `<path>/metadata`, as `loadMetadata` reads it: the JSON of the first line of
+/// the text files there (see [`load_metadata_text`]). When `expected_class` is given, a metadata
+/// of another class is an error, as `_parseMetaData` raises it.
+pub fn load_metadata(
+    session: &SparkSession,
+    path: &str,
+    expected_class: Option<&str>,
+) -> Result<serde_json::Value> {
+    let metadata_path = join_path(path, "metadata");
+    let text = load_metadata_text(session, path)?;
+    let metadata: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| SparkError::value_msg(format!("the metadata at {metadata_path}: {e}")))?;
     if let Some(expected) = expected_class {
         let class = metadata["class"].as_str().unwrap_or_default();
