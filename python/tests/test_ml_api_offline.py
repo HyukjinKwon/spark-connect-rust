@@ -70,6 +70,11 @@ FULL = [
         ("feature", "VectorAssembler"),
         ("feature", "VectorSizeHint"),
         ("feature", "VectorSlicer"),
+        ("fpm", "FPGrowth"),
+        ("fpm", "FPGrowthModel"),
+        ("fpm", "PrefixSpan"),
+        ("recommendation", "ALS"),
+        ("recommendation", "ALSModel"),
     ]
 ]
 
