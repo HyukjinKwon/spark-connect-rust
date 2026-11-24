@@ -383,8 +383,13 @@ impl<D: FrameData> Frames<D> {
                 }
             }
         }
+        // A batch of uploaded artifacts only: `entries` is for batches that mix them with Maven
+        // dependencies for the server to resolve, which this client does not send.
         Ok(Some(add_artifacts_request::Payload::Batch(
-            add_artifacts_request::Batch { artifacts },
+            add_artifacts_request::Batch {
+                artifacts,
+                entries: Vec::new(),
+            },
         )))
     }
 }

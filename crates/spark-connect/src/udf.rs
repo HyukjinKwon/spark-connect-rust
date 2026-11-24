@@ -1716,6 +1716,7 @@ mod tests {
                                 command: bytes::Bytes::copy_from_slice(command),
                                 python_ver: "3.11".to_string(),
                                 additional_includes: vec!["kept".to_string()],
+                                buffer_type: None,
                             },
                         ),
                     ),

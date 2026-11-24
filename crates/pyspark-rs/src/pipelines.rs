@@ -238,6 +238,7 @@ pub fn pipeline_define_auto_cdc_flow(
         track_history_except_column_list: to_exprs(track_history_except_column_list)?,
         ignore_null_updates_column_list: vec![],
         ignore_null_updates_except_column_list: vec![],
+        ignore_null_updates: None,
     };
     let sess = session.session.clone();
     let (gid, fname, tgt) = (

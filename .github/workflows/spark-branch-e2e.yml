@@ -1,0 +1,368 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: E2E against the Spark of the protos
+
+# The client's protos are of a commit of Spark master, or of a fork
+# (crates/spark-connect-proto/proto/SPARK_REPO.txt and SPARK_SHA.txt), which no release has. This
+# workflow builds the Spark Connect distribution of that commit (scripts/build_spark_dist.sh), or
+# of the repository and ref given to a manual run, caches it by its commit, and runs the live tests
+# against a server of it: the Rust behavioral e2e tests and the drop-in's live-server tests. The
+# workflows of the released server (build_python_connect.yml) keep running against 4.3.0, which
+# the client stays wire-compatible with.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+  push:
+    branches: [master, "branch-*"]
+  pull_request:
+    branches: [master, "branch-*"]
+  workflow_dispatch:
+    inputs:
+      spark-repository:
+        description: "GitHub repository of the Spark server (default: SPARK_REPO.txt), e.g. HyukjinKwon/spark"
+        required: false
+        default: ""
+      spark-ref:
+        description: "Branch, tag or commit of it (default: SPARK_SHA.txt), e.g. connect-rdd"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "21"
+  SPARK_TESTING: "1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  spark-dist:
+    name: Spark Connect distribution of the protos' commit
+    runs-on: ubuntu-latest
+    # A cold sbt build of Spark takes 40 to 70 minutes on a hosted runner; a cached one, seconds.
+    timeout-minutes: 150
+    outputs:
+      key: ${{ steps.resolve.outputs.key }}
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Resolve the Spark commit
+        id: resolve
+        env:
+          REPOSITORY: ${{ inputs.spark-repository }}
+          REF: ${{ inputs.spark-ref }}
+        run: |
+          proto=crates/spark-connect-proto/proto
+          repo="${REPOSITORY:-$(tr -d '[:space:]' < "${proto}/SPARK_REPO.txt")}"
+          ref="${REF:-$(tr -d '[:space:]' < "${proto}/SPARK_SHA.txt")}"
+          case "${repo}" in
+            http*://*) url="${repo}" ;;
+            *) url="https://github.com/${repo}.git" ;;
+          esac
+          if [[ "${ref}" =~ ^[0-9a-f]{40}$ ]]; then
+            sha="${ref}"
+          else
+            sha="$(git ls-remote "${url}" "${ref}" "refs/heads/${ref}" "refs/tags/${ref}" | awk 'NR == 1 {print $1}')"
+          fi
+          test -n "${sha}" || { echo "::error::${ref} is not a ref of ${url}"; exit 1; }
+          name="$(echo "${url}" | sed -E 's#^https://github.com/##; s#\.git$##; s#[^A-Za-z0-9._-]#-#g')"
+          echo "commit=${url} ${sha}" >> "$GITHUB_OUTPUT"
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          # Bump the version when the build command, profiles or JDK change.
+          echo "key=spark-dist-${name}-${sha}-jdk${JAVA_VERSION}-v1" >> "$GITHUB_OUTPUT"
+          echo "Spark server: ${url} ${sha}"
+
+      - name: Restore the Spark distribution
+        id: dist
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/spark-dist
+          key: ${{ steps.resolve.outputs.key }}
+          lookup-only: true
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        if: steps.dist.outputs.cache-hit != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Restore the dependency caches of the Spark build
+        id: deps
+        if: steps.dist.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.m2/repository
+          # The resolution of a commit is mostly that of its neighbours: restore the newest.
+          key: spark-build-deps-jdk${{ env.JAVA_VERSION }}-${{ steps.resolve.outputs.sha }}
+          restore-keys: spark-build-deps-jdk${{ env.JAVA_VERSION }}-
+
+      - name: Build the Spark Connect distribution
+        if: steps.dist.outputs.cache-hit != 'true'
+        env:
+          SPARK_SRC: ${{ runner.temp }}/spark-src
+          # The sbt of Spark's build reads these; hosted runners have 16 GB.
+          SBT_OPTS: "-Xmx6g -Xss64m -XX:ReservedCodeCacheSize=1g"
+        run: |
+          scripts/build_spark_dist.sh "${{ steps.resolve.outputs.url }}" \
+            "${{ steps.resolve.outputs.sha }}" "${HOME}/spark-dist"
+          rm -rf "${HOME}/spark-dist/src"
+
+      - name: Save the Spark distribution
+        if: steps.dist.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/spark-dist
+          key: ${{ steps.resolve.outputs.key }}
+
+      - name: Save the dependency caches of the Spark build
+        if: steps.dist.outputs.cache-hit != 'true' && steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.m2/repository
+          key: spark-build-deps-jdk${{ env.JAVA_VERSION }}-${{ steps.resolve.outputs.sha }}
+
+  rust-e2e:
+    name: Rust behavioral e2e (Spark of the protos)
+    needs: spark-dist
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Restore the Spark distribution
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/spark-dist
+          key: ${{ needs.spark-dist.outputs.key }}
+          fail-on-cache-miss: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache cargo & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-spark-branch-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-spark-branch-e2e-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Install the Python dependencies of the server's workers
+        run: python -m pip install 'pandas>=2.2,<3.0' pyarrow numpy
+
+      - name: Start the Spark Connect server
+        env:
+          PYSPARK_PYTHON: python
+          PYSPARK_DRIVER_PYTHON: python
+        run: |
+          cat "${HOME}/spark-dist/SPARK_COMMIT"
+          SPARK_HOME="$(ls -d "${HOME}"/spark-dist/spark-*-bin-ci-connect)"
+          # As build_python_connect.yml's connect-e2e: a small senderMaxStreamSize makes the
+          # server end the response stream of every result over 1 MiB before it is complete,
+          # so that the client's reattach path is exercised.
+          "${SPARK_HOME}/sbin/start-connect-server.sh" \
+            --master "local[4]" \
+            --driver-memory 3g \
+            --conf spark.sql.session.localRelationSizeLimit=1073741824 \
+            --conf spark.connect.execute.reattachable.senderMaxStreamSize=1048576 \
+            > /tmp/connect-server.log 2>&1 &
+          for i in $(seq 1 120); do
+            if (echo > /dev/tcp/localhost/15002) 2>/dev/null; then
+              echo "Connect server is up (after ${i}s)."; break
+            fi
+            if [ "$i" -eq 120 ]; then
+              echo "Server failed to start:"; cat /tmp/connect-server.log
+              cat "${SPARK_HOME}"/logs/*.out 2>/dev/null || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Rust behavioral e2e tests (against the live server)
+        env:
+          SPARK_REMOTE: sc://localhost:15002
+        run: |
+          cargo test -p apache-spark-connect \
+            --test e2e_functions --test e2e_columns --test e2e_dataframe \
+            --test e2e_coverage --test e2e_linear_svc --test e2e_linear_regression --test e2e_generalized_linear_regression --test e2e_remaining_classifiers --test e2e_remaining_regressors --test e2e_kmeans --test e2e_bisecting_kmeans --test e2e_gaussian_mixture --test e2e_remaining_clustering --test e2e_ml_features --test e2e_frequent_patterns --test e2e_als --test e2e_evaluators --test e2e_statistics --test e2e_ml_object --test e2e_feature_models --test e2e_fpm_recommendation_evaluation --test e2e_ml_regression_api --test e2e_ml_clustering_api --test e2e_decision_tree_regressor --test e2e_decision_tree_classifier --test e2e_gbt_regressor --test e2e_naive_bayes --test e2e_gbt_classifier --test e2e_random_forest --test e2e_random_forest_regressor --test e2e_integration \
+            --test arrow_map_input --test array_literal --test execute_plan_hook --test raw_relation \
+            --test e2e_tree_classification_api \
+            --test types_roundtrip \
+            --test e2e_classification_misc_api \
+            --test e2e_reattach_drop \
+            --test e2e_lr_svc_api \
+            --test e2e_ml_meta \
+            -- --test-threads=1
+
+      - name: Rust core client integration tests (against the live server)
+        env:
+          SPARK_REMOTE: sc://localhost:15002
+        run: cargo test -p apache-spark-connect-core --test integration_test -- --ignored
+
+      - name: Upload the server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-branch-e2e-rust-server-log
+          path: |
+            /tmp/connect-server.log
+            ~/spark-dist/spark-*-bin-ci-connect/logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  dropin-e2e:
+    name: Drop-in live-server tests (Spark of the protos)
+    needs: spark-dist
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Restore the Spark distribution
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/spark-dist
+          key: ${{ needs.spark-dist.outputs.key }}
+          fail-on-cache-miss: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache cargo & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-spark-branch-dropin-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-spark-branch-dropin-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Build the Rust extension into the drop-in
+        run: |
+          cargo build -p pyspark-rs --release
+          cp target/release/lib_pyspark.so python/pyspark/_pyspark.so
+
+      - name: Install the Python dependencies of the server's workers
+        run: python -m pip install 'pandas>=2.2,<3.0' pyarrow numpy pyyaml
+
+      - name: Start the Spark Connect server
+        env:
+          PYSPARK_PYTHON: python
+          PYSPARK_DRIVER_PYTHON: python
+        run: |
+          cat "${HOME}/spark-dist/SPARK_COMMIT"
+          SPARK_HOME="$(ls -d "${HOME}"/spark-dist/spark-*-bin-ci-connect)"
+          "${SPARK_HOME}/sbin/start-connect-server.sh" \
+            --master "local[4]" \
+            --driver-memory 3g \
+            --conf spark.sql.session.localRelationSizeLimit=1073741824 \
+            > /tmp/connect-server.log 2>&1 &
+          for i in $(seq 1 120); do
+            if (echo > /dev/tcp/localhost/15002) 2>/dev/null; then
+              echo "Connect server is up (after ${i}s)."; break
+            fi
+            if [ "$i" -eq 120 ]; then echo "Server failed to start:"; cat /tmp/connect-server.log; exit 1; fi
+            sleep 1
+          done
+
+      - name: Drop-in live-server tests, without protobuf
+        # As the step of the same name of build_python_connect.yml, against this server.
+        working-directory: python
+        env:
+          SPARK_REMOTE: sc://localhost:15002
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          python -m venv /tmp/client
+          /tmp/client/bin/python -m pip install pytest 'pandas>=2.2,<3.0' pyarrow numpy pyyaml 'plotly<6.0.0'
+          if /tmp/client/bin/python -c "import google.protobuf" 2>/dev/null; then
+            echo "protobuf is installed in the client environment"; exit 1
+          fi
+          /tmp/client/bin/python -m pytest -q -rs \
+            tests/test_proto_rust_offline.py \
+            tests/test_arrow_e2e.py \
+            tests/test_dropin_e2e.py \
+            tests/test_ml_e2e.py \
+            tests/test_ml_api_e2e.py \
+            tests/test_misc_api_e2e.py \
+            tests/test_statistics_e2e.py
+
+      - name: Upload the server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-branch-e2e-dropin-server-log
+          path: /tmp/connect-server.log
+          if-no-files-found: ignore
+          retention-days: 7

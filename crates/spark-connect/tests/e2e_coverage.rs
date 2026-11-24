@@ -405,7 +405,11 @@ fn session_surface() {
         return;
     }
     let s = session();
-    assert!(s.version().unwrap().starts_with('4'));
+    // The version of the server: of a release of Spark 4 (the workflows of the released server)
+    // or of a build of master, whose protos the client has (5.0.0-SNAPSHOT).
+    let version = s.version().unwrap();
+    let major: u32 = version.split('.').next().unwrap().parse().unwrap();
+    assert!(major >= 4, "{version}");
     assert_eq!(s.range(5).unwrap().count().unwrap(), 5);
     assert_eq!(s.range_full(0, 10, 2, Some(2)).unwrap().count().unwrap(), 5);
     let _ = s.sql("SELECT 1 AS a").unwrap().collect().unwrap();

@@ -1091,9 +1091,37 @@ impl DataType {
                     precision: tl.precision.unwrap_or(9),
                 })
             }
+            // PySpark 4.3.0, whose API this client has, has no type of files (`FileType` of Spark
+            // master's PySpark): its `proto_schema_to_pyspark_data_type` raises this error of a
+            // kind that it does not know, with the text of the message.
+            Some(spark_connect_proto::data_type::Kind::File(file)) => Err(SparkError::classed(
+                SparkErrorKind::ValueError,
+                "UNSUPPORTED_OPERATION",
+                &[("operation", &format!("data type {}", file_kind_text(file)))],
+            )),
             None => Err(SparkError::connect_msg("DataType kind not set")),
         }
     }
+}
+
+/// The protobuf text format of a `DataType` of the `file` kind, as Python's `str()` of the message
+/// prints it: its fields of non-default values, an enum by the name of its value.
+fn file_kind_text(file: &spark_connect_proto::data_type::File) -> String {
+    let mut text = String::from("file {\n");
+    if file.mode != 0 {
+        let mode = spark_connect_proto::data_type::FileTypeMode::try_from(file.mode)
+            .map(|mode| mode.as_str_name().to_string())
+            .unwrap_or_else(|_| file.mode.to_string());
+        text.push_str(&format!("  mode: {mode}\n"));
+    }
+    if file.type_variation_reference != 0 {
+        text.push_str(&format!(
+            "  type_variation_reference: {}\n",
+            file.type_variation_reference
+        ));
+    }
+    text.push_str("}\n");
+    text
 }
 
 impl StructField {
@@ -3092,6 +3120,56 @@ fn parse_struct_type(input: &str) -> Result<DataType> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_type_of_files_is_the_unsupported_operation_of_pyspark() {
+        // Spark master's `File` type, which PySpark 4.3.0 has no class of: the error of the
+        // other branch of its `proto_schema_to_pyspark_data_type`, with the text that upb prints
+        // of the message (`str()`), of a known mode, of none and of an unknown one.
+        use spark_connect_proto::data_type::{File, FileTypeMode, Kind};
+        let of = |file: File| spark_connect_proto::DataType {
+            kind: Some(Kind::File(file)),
+        };
+        for (file, text) in [
+            (
+                File {
+                    mode: FileTypeMode::External as i32,
+                    type_variation_reference: 0,
+                },
+                "file {\n  mode: FILE_TYPE_MODE_EXTERNAL\n}\n",
+            ),
+            (File::default(), "file {\n}\n"),
+            (
+                File {
+                    mode: 7,
+                    type_variation_reference: 2,
+                },
+                "file {\n  mode: 7\n  type_variation_reference: 2\n}\n",
+            ),
+        ] {
+            let error = DataType::from_proto(&of(file)).unwrap_err();
+            assert_eq!(error.kind, SparkErrorKind::ValueError, "{error}");
+            assert_eq!(error.error_class, "UNSUPPORTED_OPERATION");
+            assert_eq!(
+                error.params.get("operation").map(String::as_str),
+                Some(format!("data type {text}").as_str())
+            );
+        }
+        // Also as the type of a field of a schema.
+        let schema = spark_connect_proto::DataType {
+            kind: Some(Kind::Struct(spark_connect_proto::data_type::Struct {
+                fields: vec![spark_connect_proto::data_type::StructField {
+                    name: "f".to_string(),
+                    data_type: Some(of(File::default())),
+                    nullable: true,
+                    metadata: None,
+                }],
+                type_variation_reference: 0,
+            })),
+        };
+        let error = DataType::from_proto(&schema).unwrap_err();
+        assert_eq!(error.error_class, "UNSUPPORTED_OPERATION");
+    }
 
     #[test]
     fn test_null_type() {

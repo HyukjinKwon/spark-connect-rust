@@ -9,9 +9,12 @@ hot paths (plan building, gRPC transport, Arrow decode) in Rust.
 
 ## Source of truth
 
-- **Protocol**: Spark Connect protobuf `v4.3.0` - vendored under
-  `crates/spark-connect-proto/proto/`, SHA pinned in `proto/SPARK_SHA.txt`.
-  Developed and validated against Apache Spark 4.3.0 (wire-compatible).
+- **Protocol**: Spark Connect protobuf of Apache Spark master (`5.0.0-SNAPSHOT`) - vendored
+  under `crates/spark-connect-proto/proto/` from the commit pinned in `proto/SPARK_SHA.txt`, of
+  the repository in `proto/SPARK_REPO.txt`, together with the type stubs of its generated modules
+  (`python/pyspark/sql/connect/proto/*_pb2.pyi`). The Python API mirrors PySpark 4.3.0 (the
+  `SPARK_TAG` of `scripts/check_vendored_upstream.sh`); the client is wire-compatible with Spark
+  4.3.0 servers too, as the fields and messages that master adds are optional.
 - **Python reference**: `python/pyspark/sql/connect/**` (+ `sql/types.py`,
   `errors/exceptions/**`). This is the code we mirror line-by-line.
 - **Prior art (same author)**: `spark-connect-ruby`, `spark-connect-scala3`,

@@ -10,7 +10,8 @@
 //! bindings, which decode the requests as prost does, of no limit of the client's.
 //! Embeddings configure tonic's transport server features separately.
 //!
-//! Baseline protocol version: see `proto/PROTO_VERSION.txt` / `proto/SPARK_SHA.txt`.
+//! Baseline protocol version: see `proto/PROTO_VERSION.txt`, and the commit of the protos,
+//! `proto/SPARK_SHA.txt` of the repository of `proto/SPARK_REPO.txt`.
 
 #![allow(clippy::large_enum_variant)] // Generated protobuf code has large enum variants
 

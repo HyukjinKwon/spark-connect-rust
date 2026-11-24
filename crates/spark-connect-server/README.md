@@ -51,8 +51,9 @@ selected-runtime acceptance described under [Validation](#validation). The
 historical performance measurements below have not been reproduced with the
 current result-framing frontend.
 
-The workspace currently tracks the Spark 4.3.0 protocol; its pin is recorded in
-[PROTO_VERSION.txt](../spark-connect-proto/proto/PROTO_VERSION.txt). The JNI
+The workspace currently tracks the Spark master protocol; its pin is recorded in
+[PROTO_VERSION.txt](../spark-connect-proto/proto/PROTO_VERSION.txt) and
+[SPARK_SHA.txt](../spark-connect-proto/proto/SPARK_SHA.txt). The JNI
 implementation was developed and validated with Spark `4.2.0-SNAPSHOT`, revision
 `250ccca3f2b5f043e20b415adf17bda5d202c60f`, Scala 2.13.17 and JDK 21.0.10. It depends
 on internal Spark APIs, including `SessionHolder`, `SparkConnectPlanner`,

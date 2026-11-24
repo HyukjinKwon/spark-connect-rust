@@ -237,21 +237,6 @@ VENDORED_FILES=(
   "ml/connect/io_utils.py"
   "ml/connect/summarizer.py"
   "ml/connect/util.py"
-  # The type stubs of the generated Spark Connect protobuf modules, whose messages pyspark.ml
-  # builds. The modules themselves are the Rust protobuf runtime's (sql/connect/proto/__init__.py
-  # and _rust.py are the client's own), and base_pb2_grpc is not vendored: the Rust transport
-  # speaks gRPC.
-  "sql/connect/proto/base_pb2.pyi"
-  "sql/connect/proto/types_pb2.pyi"
-  "sql/connect/proto/commands_pb2.pyi"
-  "sql/connect/proto/expressions_pb2.pyi"
-  "sql/connect/proto/relations_pb2.pyi"
-  "sql/connect/proto/catalog_pb2.pyi"
-  "sql/connect/proto/common_pb2.pyi"
-  "sql/connect/proto/ml_pb2.pyi"
-  "sql/connect/proto/ml_common_pb2.pyi"
-  "sql/connect/proto/pipelines_pb2.pyi"
-  "sql/connect/proto/example_plugins_pb2.pyi"
   # ML connect base ABCs (Estimator/Transformer/Evaluator/Model) - pure upstream.
   "ml/connect/base.py"
   # The scalers and ArrayAssembler of pyspark.ml.connect, which run their fit and transform in
@@ -352,9 +337,33 @@ VENDORED_MAPPED_FILES=(
   "crates/spark-connect/src/srs_registry.csv=python/pyspark/sql/srs_registry.csv"
 )
 
+# Files under python/pyspark vendored verbatim from Apache Spark at the commit that the vendored
+# Spark Connect protos are of (crates/spark-connect-proto/proto/SPARK_SHA.txt, of the repository
+# of SPARK_REPO.txt), which can be a commit of master, or of a fork, rather than SPARK_TAG: the type stubs of the generated Spark Connect protobuf
+# modules, whose messages pyspark.ml builds. The modules themselves are the Rust protobuf
+# runtime's (sql/connect/proto/__init__.py and _rust.py are the client's own), and base_pb2_grpc
+# is not vendored: the Rust transport speaks gRPC. The .proto files are not checked: the
+# workspace may extend them (see AGENTS.md).
+PROTO_VENDORED_FILES=(
+  "sql/connect/proto/base_pb2.pyi"
+  "sql/connect/proto/types_pb2.pyi"
+  "sql/connect/proto/commands_pb2.pyi"
+  "sql/connect/proto/expressions_pb2.pyi"
+  "sql/connect/proto/relations_pb2.pyi"
+  "sql/connect/proto/catalog_pb2.pyi"
+  "sql/connect/proto/common_pb2.pyi"
+  "sql/connect/proto/ml_pb2.pyi"
+  "sql/connect/proto/ml_common_pb2.pyi"
+  "sql/connect/proto/pipelines_pb2.pyi"
+  "sql/connect/proto/example_plugins_pb2.pyi"
+)
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+PROTO_SHA="$(tr -d '[:space:]' < "${REPO_ROOT}/crates/spark-connect-proto/proto/SPARK_SHA.txt")"
+# The repository of that commit, which can be a fork of Apache Spark for protos that it adds.
+PROTO_REPO="$(tr -d '[:space:]' < "${REPO_ROOT}/crates/spark-connect-proto/proto/SPARK_REPO.txt")"
 
 # Sparse-checkout the dirs + the parent dirs of the individual files (cone mode operates on
 # directories, so a file path alone would not materialize).
@@ -372,12 +381,26 @@ git clone --quiet --depth 1 --branch "${SPARK_TAG}" --filter=blob:none --sparse 
   "${SPARK_REPO}" "${WORK}/spark"
 ( cd "${WORK}/spark" && git sparse-checkout set "${sparse_paths[@]}" >/dev/null )
 
+# The commit of the protos, by its SHA: a shallow fetch of one commit, as a clone takes a branch
+# or a tag only.
+echo "Fetching ${PROTO_REPO} ${PROTO_SHA} (the commit of the protos; sparse, blobless) ..."
+git init --quiet "${WORK}/spark-proto"
+(
+  cd "${WORK}/spark-proto"
+  git remote add origin "${PROTO_REPO}"
+  git sparse-checkout set python/pyspark/sql/connect/proto >/dev/null
+  git fetch --quiet --depth 1 --filter=blob:none origin "${PROTO_SHA}"
+  git checkout --quiet FETCH_HEAD
+)
+
 status=0
-# Compare the path $1 of this repo with the path $2 of Apache Spark at the tag.
+# Compare the path $1 of this repo with the path $2 of Apache Spark at the tag (or, with $5 and
+# $6, of the checkout $5 of Apache Spark at the ref $6).
 check_paths() {
   local ours_path="$1" theirs_path="$2" flag="$3" extra_exclude="${4:-}"
+  local upstream="${5:-${WORK}/spark}" SPARK_TAG="${6:-${SPARK_TAG}}"
   local ours="${REPO_ROOT}/${ours_path}"
-  local theirs="${WORK}/spark/${theirs_path}"
+  local theirs="${upstream}/${theirs_path}"
   local name="${ours_path}"
   [[ "${ours_path}" != "${theirs_path}" ]] && name="${ours_path} (upstream ${theirs_path})"
   # Always ignore __pycache__; a caller may add one more --exclude (e.g. `tests` for the
@@ -417,10 +440,14 @@ done
 for m in "${VENDORED_MAPPED_FILES[@]}"; do
   check_paths "${m%%=*}" "${m#*=}" ""
 done
+for p in "${PROTO_VENDORED_FILES[@]}"; do
+  check_paths "python/pyspark/${p}" "python/pyspark/${p}" "" "" "${WORK}/spark-proto" "${PROTO_SHA}"
+done
 
 if [[ "${status}" -ne 0 ]]; then
   echo
-  echo "Vendored files have drifted from Apache Spark ${SPARK_TAG}."
+  echo "Vendored files have drifted from Apache Spark ${SPARK_TAG} (or, for the proto type"
+  echo "stubs, from the commit of the protos, ${PROTO_SHA})."
   echo "Re-vendor from upstream (git subtree pull) or revert the local edit."
 fi
 exit "${status}"

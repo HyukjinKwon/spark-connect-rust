@@ -721,6 +721,8 @@ impl SparkConnectService for ConnectService {
             session_id: req.session_id,
             server_side_session_id: session.id.clone(),
             result: Some(result),
+            // The engine's analyses have no results of extensions.
+            extensions: Vec::new(),
         }))
     }
 

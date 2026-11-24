@@ -1211,6 +1211,7 @@ macro_rules! relation_inputs_of {
             Some(RelType::LateralJoin(r)) => vec![r.left.$deref(), r.right.$deref()],
             Some(RelType::NearestByJoin(r)) => vec![r.left.$deref(), r.right.$deref()],
             Some(RelType::Zip(r)) => vec![r.left.$deref(), r.right.$deref()],
+            Some(RelType::BinBy(r)) => vec![r.input.$deref()],
             Some(RelType::FillNa(r)) => vec![r.input.$deref()],
             Some(RelType::DropNa(r)) => vec![r.input.$deref()],
             Some(RelType::Replace(r)) => vec![r.input.$deref()],
@@ -1567,7 +1568,8 @@ fn holds_expressions(relation: &proto::Relation) -> bool {
             | RelType::LateralJoin(_)
             | RelType::NearestByJoin(_)
             | RelType::Transpose(_)
-            | RelType::SampleBy(_),
+            | RelType::SampleBy(_)
+            | RelType::BinBy(_),
         ) => true,
         Some(
             RelType::Read(_)
@@ -5752,6 +5754,35 @@ mod placeholder_tests {
     }
 
     #[test]
+    fn placeholders_resolve_in_the_input_and_the_expressions_of_a_bin_by() {
+        // A `BinBy` of Spark master, which the client does not build, as a plan built in Python
+        // sends it: the relation of a DataFrame in its input and in the message of the extension
+        // of one of its expressions, which a placeholder stands for.
+        let ids = Arc::new(PlanIds::new());
+        let node = Arc::new(range(0, 3, 1));
+        let relation = relation_with_ids(&node, &ids).unwrap();
+        let standalone = placeholder(&node, &ids);
+        let message = |input: &proto::Relation| proto::SubqueryAlias {
+            input: Some(Box::new(input.clone())),
+            alias: "s".to_string(),
+            qualifier: Vec::new(),
+        };
+        let bin_by = |input: &proto::Relation| {
+            relation_of(proto::relation::RelType::BinBy(Box::new(proto::BinBy {
+                input: Some(Box::new(input.clone())),
+                distribute_uniform: vec![expression_extension_of(&message(input))],
+                bin_start_name: Some("start".to_string()),
+                ..Default::default()
+            })))
+        };
+        let mut plan = bin_by(&standalone);
+        resolve_relation(&mut plan).unwrap();
+        assert_eq!(plan, bin_by(&relation));
+        assert_eq!(relation_inputs(&plan), vec![&relation]);
+        assert!(holds_expressions(&plan));
+    }
+
+    #[test]
     fn a_placeholder_that_a_plan_changes_is_sent_with_the_change() {
         // As PySpark's relation of `plan(session)`, whose `common` a plan or a plugin sets
         // (`relation.common.plan_id = ...`): the relation is sent with the `common` merged into
@@ -6427,6 +6458,10 @@ mod placeholder_tests {
             relation_of(RelType::Zip(Box::new(proto::Zip {
                 left: boxed(input),
                 right: boxed(other),
+            }))),
+            relation_of(RelType::BinBy(Box::new(proto::BinBy {
+                input: boxed(input),
+                ..Default::default()
             }))),
             relation_of(RelType::CollectMetrics(Box::new(proto::CollectMetrics {
                 input: boxed(input),
