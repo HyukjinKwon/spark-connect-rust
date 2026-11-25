@@ -200,7 +200,11 @@ jobs:
           sudo apt-get install -y protobuf-compiler
 
       - name: Install the Python dependencies of the server's workers
-        run: python -m pip install 'pandas>=2.2,<3.0' pyarrow numpy
+        # As those of the drop-in job below: the Spark Connect client's too, which the workers of
+        # PySpark Connect's foreachBatch, listeners and pickled columns import.
+        run: >-
+          python -m pip install 'pandas>=2.2,<3.0' pyarrow numpy pyyaml grpcio grpcio-status
+          googleapis-common-protos cloudpickle zstandard py4j
 
       - name: Start the Spark Connect server
         env:
@@ -320,7 +324,13 @@ jobs:
           cp target/release/lib_pyspark.so python/pyspark/_pyspark.so
 
       - name: Install the Python dependencies of the server's workers
-        run: python -m pip install 'pandas>=2.2,<3.0' pyarrow numpy pyyaml
+        # Those of build_python_connect.yml's server, of the Spark Connect client too: the workers
+        # of foreachBatch, of the listeners and of transformWithState run a session of PySpark
+        # Connect, and the pickles of the drop-in's columns load PySpark Connect's (grpcio and
+        # protobuf of pyspark.sql.connect).
+        run: >-
+          python -m pip install 'pandas>=2.2,<3.0' pyarrow numpy pyyaml grpcio grpcio-status
+          googleapis-common-protos cloudpickle zstandard py4j
 
       - name: Start the Spark Connect server
         env:
@@ -360,7 +370,7 @@ jobs:
             "import pyspark._pyspark as r, pyspark.sql.connect.proto as p; assert issubclass(p.Relation, r.ProtoMessage)"
           RUST_PARITY_DESELECT="$(awk '$1 == "pytest" {print $2}' ../scripts/spark_master_known_failures.txt)"
           export RUST_PARITY_DESELECT
-          /tmp/client/bin/python -m pytest -q -rs -p dropin_deselect_plugin \
+          /tmp/client/bin/python -m pytest -q -rfEs -p dropin_deselect_plugin \
             tests/test_proto_rust_offline.py \
             tests/test_arrow_e2e.py \
             tests/test_dropin_e2e.py \

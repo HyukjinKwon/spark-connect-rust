@@ -260,7 +260,7 @@ jobs:
         env:
           SPARK_REMOTE: sc://localhost:15002
           PYTHONPATH: ${{ github.workspace }}/python
-        run: python -m pytest -q -rs tests/test_rdd_e2e.py
+        run: python -m pytest -q -rfEs tests/test_rdd_e2e.py
 
       - name: RDD API suites of the Spark commit through the drop-in
         # Every pyspark/tests/connect suite of the commit, of its mixins of Spark Classic's
