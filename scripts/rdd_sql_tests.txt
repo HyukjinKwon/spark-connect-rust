@@ -1,0 +1,34 @@
+# The tests of the Connect suites of sql of the commit of the protos
+# (crates/spark-connect-proto/proto/SPARK_SHA.txt of SPARK_REPO.txt) that its RDD API un-skips or
+# adds, which the drop-in runs against a server of that commit, for
+# .github/workflows/spark-branch-rdd.yml (scripts/run_official_tests.py --dropin --select): each
+# must run and pass. A line is `<file>::<Class>::<test>`, the file relative to python/.
+#
+# Not listed: test_connect_basic.py and test_connect_session.py, of a classic session or of a local
+# server; client/test_artifact.py and test_parity_resources.py, of a local cluster; the pandas API
+# on Spark, whose package the drop-in vendors of Apache Spark v4.3.0; and test_parity_types.py,
+# whose module of that commit imports a type that pyspark.sql.types of Apache Spark v4.3.0 does not
+# have (FileType), and so the drop-in's.
+
+pyspark/sql/tests/connect/arrow/test_parity_arrow.py::ArrowParityTests::test_no_partition_frame
+pyspark/sql/tests/connect/arrow/test_parity_arrow.py::ArrowParityTests::test_no_partition_toPandas
+pyspark/sql/tests/connect/arrow/test_parity_arrow.py::ArrowParityTests::test_toPandas_batch_order
+
+pyspark/sql/tests/connect/test_connect_error.py::SparkConnectErrorTests::test_rdd
+
+pyspark/sql/tests/connect/test_parity_dataframe.py::DataFrameParityTests::test_rdd_conversion_propagates_sql_conf
+pyspark/sql/tests/connect/test_parity_dataframe.py::DataFrameParityTests::test_rdd_with_shuffle_computes_it_once
+pyspark/sql/tests/connect/test_parity_dataframe.py::DataFrameParityTests::test_toDF_with_schema_string
+
+pyspark/sql/tests/connect/test_parity_datasources.py::DataSourcesParityTests::test_csv_sampling_ratio
+pyspark/sql/tests/connect/test_parity_datasources.py::DataSourcesParityTests::test_json_sampling_ratio
+pyspark/sql/tests/connect/test_parity_datasources.py::DataSourcesParityTests::test_xml_sampling_ratio
+
+pyspark/sql/tests/connect/test_parity_job_cancellation.py::JobCancellationParityTests::test_interrupt_all
+pyspark/sql/tests/connect/test_parity_job_cancellation.py::JobCancellationParityTests::test_job_tags_via_spark_context
+pyspark/sql/tests/connect/test_parity_job_cancellation.py::JobCancellationParityTests::test_set_job_group_replaces_the_job_group
+
+pyspark/sql/tests/connect/test_parity_serde.py::SerdeParityTests::test_int_array_serialization
+pyspark/sql/tests/connect/test_parity_serde.py::SerdeParityTests::test_serialize_nested_array_and_map
+
+pyspark/sql/tests/connect/test_parity_udf.py::UDFParityTests::test_worker_original_stdin_closed

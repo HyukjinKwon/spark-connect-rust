@@ -24,7 +24,9 @@ name: RDD API against the Spark of the protos
 # manual run, as spark-branch-e2e.yml does (the same job, of the same cache keys, so that either
 # workflow builds it for both), and runs against a server of it the drop-in's live tests of the
 # RDD API and the RDD API suites of that commit (python/pyspark/tests/connect) through the drop-in
-# (scripts/run_official_tests.py --dropin), but the files of scripts/rdd_known_failures.txt.
+# (scripts/run_official_tests.py --dropin), but the files of scripts/rdd_known_failures.txt, and
+# the tests of the sql suites of that commit that its RDD API un-skips or adds, of
+# scripts/rdd_sql_tests.txt (--select), each of which must run and pass.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
@@ -53,6 +55,9 @@ env:
   JAVA_VERSION: "21"
   SPARK_TESTING: "1"
   CARGO_TERM_COLOR: always
+  # The drop-in, a Spark Connect client, pickles with cloudpickle-rust only when this is 1: the
+  # server of the commit of the protos loads its payloads (as its workers have it too).
+  PYSPARK_CLOUDPICKLE_RUST: "1"
 
 jobs:
   spark-dist:
@@ -270,6 +275,15 @@ jobs:
           SPARK_CONNECT_TESTING_REMOTE=sc://localhost:15002 \
             python scripts/run_official_tests.py --dropin --spark "${src}" --jobs 1 \
               --no-drift-check --manifest scripts/rdd_known_failures.txt --only "${only}"
+
+      - name: Tests of the sql suites of the Spark commit of its RDD API through the drop-in
+        run: |
+          src="${RUNNER_TEMP}/spark-src"
+          SPARK_HOME="${src}" \
+          RUST_PYSPARK_SO="${GITHUB_WORKSPACE}/python/pyspark/_pyspark.so" \
+          SPARK_CONNECT_TESTING_REMOTE=sc://localhost:15002 \
+            python scripts/run_official_tests.py --dropin --spark "${src}" --jobs 1 \
+              --select scripts/rdd_sql_tests.txt
 
       - name: Upload the server log
         if: always()

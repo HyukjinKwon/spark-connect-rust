@@ -380,6 +380,16 @@ def main():
         "a real multi-executor cluster.",
     )
     ap.add_argument(
+        "--select",
+        default=None,
+        help="Run ONLY the tests that this file lists, one `<file>::<Class>::<test>` per line, "
+        "the file relative to python/ (`#` starts a comment), of their files: each listed test "
+        "must run and pass, so one that is not collected, is skipped or fails, fails the gate. "
+        "The manifest and the drift check do not apply. spark-branch-rdd.yml runs "
+        "scripts/rdd_sql_tests.txt so: the tests of the sql suites that the RDD API of the "
+        "Spark commit un-skips or adds.",
+    )
+    ap.add_argument(
         "--exclude",
         default="",
         help="Comma-separated test-file basenames to drop from discovery (e.g. the "
@@ -416,7 +426,18 @@ def main():
 
 
 def _run(args, spark_py: Path, manifest: Path):
-    if args.only:
+    selected = {}
+    if args.select:
+        selected, whole = load_manifest(Path(args.select))
+        if whole or not selected:
+            print("!! --select lists tests (<file>::<Class>::<test>), not files:", *sorted(whole))
+            return 2
+        files = [spark_py / rel for rel in sorted(selected)]
+        missing = [f for f in files if not f.exists()]
+        if missing:
+            print("!! --select test file(s) not found:", *(str(m) for m in missing))
+            return 2
+    elif args.only:
         files = resolve_only(args.only, spark_py)
         missing = [f for f in files if not f.exists()]
         if missing:
@@ -439,13 +460,17 @@ def _run(args, spark_py: Path, manifest: Path):
     # Every run (tests, retries, drift check) goes through the same runner, in the mode.
     run = functools.partial(run_ours, dropin=args.dropin)
 
-    per_file, whole_file = load_manifest(manifest)
+    per_file, whole_file = ({}, set()) if args.select else load_manifest(manifest)
     n_skip = sum(len(v) for v in per_file.values())
-    print(
-        f"Discovered {len(files)} connect test files; manifest skips "
-        f"{n_skip} tests + {len(whole_file)} whole files.\n",
-        flush=True,
-    )
+    if args.select:
+        n_selected = sum(len(v) for v in selected.values())
+        print(f"Selected {n_selected} tests of {len(files)} test files.\n", flush=True)
+    else:
+        print(
+            f"Discovered {len(files)} connect test files; manifest skips "
+            f"{n_skip} tests + {len(whole_file)} whole files.\n",
+            flush=True,
+        )
 
     def is_bad(counts):
         # A file failed if pytest exited nonzero (covers failures, errors, collection/
@@ -460,6 +485,23 @@ def _run(args, spark_py: Path, manifest: Path):
 
     def work(tf: Path):
         rel = tf.relative_to(spark_py).as_posix()
+        if args.select:
+            listed = selected[rel]
+            file_timeout = SLOW_FILE_TIMEOUTS.get(tf.name, args.timeout)
+            counts, failed_ids = run(
+                tf, spark_py, args.remote, listed, file_timeout, select_only=True
+            )
+            # Each listed test ran and passed: none is missing (not collected, as of a typo or a
+            # test that the file no longer has) or skipped.
+            if not is_bad(counts) and (
+                counts.get("skipped", 0) or counts.get("passed", 0) < len(listed)
+            ):
+                counts["rc"] = 1
+                failed_ids = [
+                    f"{rel}: {counts.get('passed', 0)} of the {len(listed)} listed tests passed, "
+                    f"{counts.get('skipped', 0)} skipped"
+                ]
+            return tf.name, counts, failed_ids, False, 1
         if rel in whole_file:
             return tf.name, None, [], True, 1  # skipped whole file
         deselect = per_file.get(rel, [])
@@ -511,7 +553,7 @@ def _run(args, spark_py: Path, manifest: Path):
     # test stays skipped forever and a later regression in a skiplisted area is
     # invisible. This never fails the gate (a genuine environmental skip keeps
     # failing here); it only surfaces entries to remove so the list stays honest.
-    if not args.no_drift_check:
+    if not args.no_drift_check and not args.select:
         now_passing = []
         files_by_rel = {tf.relative_to(spark_py).as_posix(): tf for tf in files}
         for rel, suffixes in sorted(per_file.items()):

@@ -253,6 +253,80 @@ def _load_deselect_plugin():
     return module
 
 
+class SelectTests(unittest.TestCase):
+    """--select: only the listed tests of their files run, and each of them must pass."""
+
+    def _args(self, select: Path):
+        import argparse
+
+        return argparse.Namespace(
+            select=str(select),
+            only="",
+            exclude="",
+            dropin=True,
+            jobs=1,
+            timeout=10,
+            retries=0,
+            no_drift_check=False,
+            remote="sc://localhost",
+        )
+
+    def _tree(self, td: str, listing: str):
+        spark_py = Path(td) / "python"
+        for rel in ("pyspark/sql/tests/connect/test_a.py", "pyspark/sql/tests/connect/test_b.py"):
+            (spark_py / rel).parent.mkdir(parents=True, exist_ok=True)
+            (spark_py / rel).write_text("")
+        select = Path(td) / "select.txt"
+        select.write_text(listing)
+        return spark_py, select
+
+    def test_the_listed_tests_run_and_one_that_does_not_pass_fails(self):
+        listing = (
+            "# A comment.\n"
+            "pyspark/sql/tests/connect/test_a.py::A::test_one\n"
+            "pyspark/sql/tests/connect/test_a.py::A::test_two  # and a comment\n"
+            "pyspark/sql/tests/connect/test_b.py::B::test_skipped\n"
+        )
+        counts = {
+            "test_a.py": {"passed": 2, "failed": 0, "error": 0, "skipped": 0, "rc": 0},
+            "test_b.py": {"passed": 0, "failed": 0, "error": 0, "skipped": 1, "rc": 0},
+        }
+        calls = []
+
+        def run_ours(test_file, spark_py, remote, suffixes, timeout, select_only=False, **_):
+            calls.append((test_file.name, list(suffixes), select_only))
+            return dict(counts[test_file.name]), []
+
+        with tempfile.TemporaryDirectory() as td:
+            spark_py, select = self._tree(td, listing)
+            with patch.object(runner, "run_ours", side_effect=run_ours):
+                rc = runner._run(self._args(select), spark_py, Path(td) / "no-manifest.txt")
+        self.assertEqual(rc, 1)
+        self.assertEqual(
+            sorted(calls),
+            [
+                ("test_a.py", ["A::test_one", "A::test_two"], True),
+                ("test_b.py", ["B::test_skipped"], True),
+            ],
+        )
+        # All of them passed: the gate passes, and no drift check runs.
+        counts["test_b.py"] = {"passed": 1, "failed": 0, "error": 0, "skipped": 0, "rc": 0}
+        calls.clear()
+        with tempfile.TemporaryDirectory() as td:
+            spark_py, select = self._tree(td, listing)
+            with patch.object(runner, "run_ours", side_effect=run_ours):
+                rc = runner._run(self._args(select), spark_py, Path(td) / "no-manifest.txt")
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(calls), 2)
+
+    def test_a_listed_file_or_a_missing_file_is_an_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            spark_py, select = self._tree(td, "pyspark/sql/tests/connect/test_a.py\n")
+            self.assertEqual(runner._run(self._args(select), spark_py, Path(td) / "none"), 2)
+            spark_py, select = self._tree(td, "pyspark/sql/tests/connect/test_c.py::C::test\n")
+            self.assertEqual(runner._run(self._args(select), spark_py, Path(td) / "none"), 2)
+
+
 class DropinDeselectPluginTests(unittest.TestCase):
     class _Item:
         def __init__(self, nodeid):
