@@ -2032,6 +2032,7 @@ fn command_relation_mut(command: &mut proto::Command) -> Option<&mut proto::Rela
         CommandType::MergeIntoTableCommand(merge) => merge.source_table_plan.as_mut(),
         CommandType::RddCommand(rdd) => match rdd.command_type.as_mut()? {
             proto::rdd_command::CommandType::Describe(describe) => describe.rdd.as_mut(),
+            proto::rdd_command::CommandType::Pin(pin) => pin.rdd.as_mut(),
             proto::rdd_command::CommandType::GetContextInfo(_) => None,
         },
         CommandType::PipelineCommand(pipeline) => match pipeline.command_type.as_mut()? {
@@ -5928,7 +5929,7 @@ mod placeholder_tests {
             )))
             .is_empty()
         );
-        // The RDD of `RDDCommand.Describe`, and the command of no relation.
+        // The RDDs of `RDDCommand.Describe` and `RDDCommand.Pin`, and the command of no relation.
         let describe = |r: &proto::Relation| proto::Command {
             command_type: Some(proto::command::CommandType::RddCommand(proto::RddCommand {
                 command_type: Some(proto::rdd_command::CommandType::Describe(
@@ -5938,9 +5939,23 @@ mod placeholder_tests {
                 )),
             })),
         };
-        let mut command = describe(&standalone);
-        resolve_command(&mut command, None).unwrap();
-        assert_eq!(command, describe(&relation));
+        let pin = |r: &proto::Relation| proto::Command {
+            command_type: Some(proto::command::CommandType::RddCommand(proto::RddCommand {
+                command_type: Some(proto::rdd_command::CommandType::Pin(
+                    proto::rdd_command::Pin {
+                        rdd: Some(r.clone()),
+                    },
+                )),
+            })),
+        };
+        for build in [
+            &describe as &dyn Fn(&proto::Relation) -> proto::Command,
+            &pin,
+        ] {
+            let mut command = build(&standalone);
+            resolve_command(&mut command, None).unwrap();
+            assert_eq!(command, build(&relation));
+        }
         let mut info = proto::Command {
             command_type: Some(proto::command::CommandType::RddCommand(proto::RddCommand {
                 command_type: Some(proto::rdd_command::CommandType::GetContextInfo(

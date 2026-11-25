@@ -44774,15 +44774,16 @@ def test_known_keywords_still_bind_with_the_unexpected_catch_all(offline_spark):
 def test_reader_paths_are_checked_as_pyspark(offline_spark):
     from pyspark.errors import PySparkTypeError
 
-    # json and xml take a path, a list of them or a DataFrame; csv loads any other path,
-    # which load then asserts, as PySpark's.
+    # json and xml take a path, a list of them, an RDD of strings (of the RDD API of Spark
+    # Connect of the commit of the protos) or a DataFrame; csv loads any other path, which load
+    # then asserts, as PySpark's.
     for read in (offline_spark.read.json, offline_spark.read.xml):
         for path in (1, ("p",)):
             with pytest.raises(PySparkTypeError) as error:
                 read(path)
             assert error.value.getCondition() == "NOT_EXPECTED_TYPE"
             assert error.value.getMessageParameters() == {
-                "arg_name": "path", "expected_type": "str, list, or DataFrame",
+                "arg_name": "path", "expected_type": "str, list, RDD, or DataFrame",
                 "arg_type": type(path).__name__}
     for read in (
         lambda path: offline_spark.read.csv(path),

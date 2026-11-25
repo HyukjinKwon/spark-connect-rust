@@ -417,9 +417,12 @@ def test_sql_utils_is_pysparks_module(tmp_path, monkeypatch):
     with pytest.raises(PySparkRuntimeError) as raised:
         utils.require_test_compiled()
     assert raised.value.getCondition() == "TEST_CLASS_NOT_COMPILED"
-    # A Connect-only client has no SparkContext, of which PySpark's classic helper imports.
-    with pytest.raises(ImportError, match="SparkContext"):
+    # A Connect-only client has no active SparkContext of Spark Classic, which PySpark's classic
+    # helper reads of the SparkContext of pyspark: of the RDD API of Spark Connect, the one of its
+    # sessions, which never has one.
+    with pytest.raises(PySparkRuntimeError) as raised:
         utils.get_active_spark_context()
+    assert raised.value.getCondition() == "SESSION_OR_CONTEXT_NOT_EXISTS"
 
 
 def test_the_decorators_of_sql_utils_run_spark_connects(objects):

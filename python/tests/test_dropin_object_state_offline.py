@@ -1139,12 +1139,14 @@ _READ_OUTCOMES = {
     'load(int path)': ('call', 'AssertionError', ''),
     'load(path, schema=int)': ('call', 'PySparkTypeError', '[NOT_EXPECTED_TYPE] Argument `schema` should be str or struct type, got int.'),
     'load(path, k=bad)': ('request', 'UnicodeEncodeError', "'utf-8' codec can't encode character '\\udc80' in position 1: surrogates not allowed"),
-    'json(int)': ('call', 'PySparkTypeError', '[NOT_EXPECTED_TYPE] Argument `path` should be str, list, or DataFrame, got int.'),
+    # json and xml take an RDD of strings too, of the RDD API of Spark Connect of the commit of the
+    # protos, whose PySpark Connect says so.
+    'json(int)': ('call', 'PySparkTypeError', '[NOT_EXPECTED_TYPE] Argument `path` should be str, list, RDD, or DataFrame, got int.'),
     'json(df)': ('ok',),
     'json(df, schema=ddl)': ('ok',),
     'csv(int)': ('call', 'AssertionError', ''),
     'csv(tuple)': ('call', 'AssertionError', ''),
-    'xml(int)': ('call', 'PySparkTypeError', '[NOT_EXPECTED_TYPE] Argument `path` should be str, list, or DataFrame, got int.'),
+    'xml(int)': ('call', 'PySparkTypeError', '[NOT_EXPECTED_TYPE] Argument `path` should be str, list, RDD, or DataFrame, got int.'),
     'parquet(int)': ('call', 'AssertionError', ''),
     'text(int)': ('call', 'AssertionError', ''),
     'orc(None)': ('ok',),

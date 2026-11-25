@@ -96,7 +96,10 @@ def test_parallelize_of_cached_local_data(spark):
 
 
 def test_closures_of_cloudpickle_rust(spark):
-    pytest.importorskip("cloudpickle_rust")
+    from pyspark.serializers import _cloudpickle
+
+    if _cloudpickle().__name__ != "cloudpickle_rust":
+        pytest.skip("cloudpickle-rust is not installed, or PYSPARK_CLOUDPICKLE_RUST is not 1")
     sc = spark.sparkContext
     offset = 10
 

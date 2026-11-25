@@ -15,7 +15,7 @@ __engine__: str = "rust"  # native Rust core via tonic -- not grpcio/py4j
 
 import sys
 from functools import wraps
-from typing import cast, Any, Callable, TypeVar, Union
+from typing import TYPE_CHECKING, cast, Any, Callable, TypeVar, Union
 
 from pyspark.util import is_remote_only
 
@@ -104,26 +104,19 @@ from pyspark.sql import (
 from pyspark.util import InheritableThread, inheritable_thread_target
 
 # The RDD API of Spark Connect (pyspark.core.connect) of the connect-rdd branch of
-# HyukjinKwon/spark: its RDDs are of the classes of the facade of pyspark.core.rdd, of both
-# clients, which PySpark exports here when not is_remote_only() (see above), and which the drop-in
-# has, as a client of that API. They are not of __all__, as of the PySpark client's.
+# HyukjinKwon/spark, whose module, as here, exports of the classic names (see above) when
+# is_remote_only() the classes of the RDDs of both clients, of pyspark.core.rdd, under its import
+# path of pyspark.rdd too, and the SparkContext of the sessions of Spark Connect. The drop-in's
+# __all__ lists none of them, as it lists no classic name.
+from pyspark.core import rdd  # noqa: E402
 from pyspark.core.rdd import RDD as RDD, RDDBarrier as RDDBarrier  # noqa: E402
-from pyspark.core import rdd as _rdd  # noqa: E402
 
-sys.modules["pyspark.rdd"] = _rdd
-del _rdd
+sys.modules["pyspark.rdd"] = rdd
 
-
-def __getattr__(name: str) -> Any:
-    # The SparkContext of the RDD API of Spark Connect, the session-scoped one of
-    # `SparkSession.sparkContext`, whose constructor mirrors the classic SparkContext's, which
-    # PySpark exports here when not is_remote_only() (see above): imported at its first use, as
-    # it imports the session.
-    if name == "SparkContext":
-        from pyspark.core.connect.context import SparkContext
-
-        return SparkContext
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+if not TYPE_CHECKING:
+    # Of the run time only: type checkers see the classic SparkContext of the block above, of no
+    # type, as with pyspark-client 4.3.0.
+    from pyspark.core.connect.context import SparkContext
 
 __all__ = [
     "SparkSession",

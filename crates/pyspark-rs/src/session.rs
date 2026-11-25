@@ -3981,16 +3981,8 @@ impl PySparkSession {
         // `get_config_dict`), whose session it converts the data of: read at its first request,
         // once it checked the data and warned (see `LazyClientSession`).
         let this = LazyClientSession::new(slf);
-        // As PySpark's createDataFrame, which checks its schema, of a DDL string as the server
-        // parses it, against the `AtomicType` and the `StructType` of its module of the session,
-        // which it binds with the first session, of any data and before it reads any setting
-        // (`pyspark_checked_schema`): of a DDL string so parsed, the parsed type is the schema.
-        let parsed = pyspark_checked_schema(py, &this, schema)?;
-        let schema = parsed.as_ref().or(schema);
         if is_rdd {
-            // As PySpark's createDataFrame of that branch, of the schema that it checked: a DDL
-            // string as the server parses it, which is then an `AtomicType` or a `StructType`, a
-            // list or a tuple, or None (`_check_schema` of the session's module).
+            // As PySpark's createDataFrame of that branch: a DDL string as the server parses it.
             let schema = match schema {
                 Some(text) if text.is_instance_of::<pyo3::types::PyString>() => {
                     let parsed = crate::types::schema_data_type(py, &this.get()?.session, text)?;
@@ -3998,11 +3990,34 @@ impl PySparkSession {
                 }
                 other => other.cloned(),
             };
-            py.import(pyo3::intern!(py, "pyspark.sql.connect.session"))?
+            // Its `verifySchema`, true when it is None.
+            let verify = match verifySchema {
+                Some(verify) if !verify.is_none() => verify.clone(),
+                _ => pyo3::types::PyBool::new(py, true).to_owned().into_any(),
+            };
+            // A data type that is not a struct is the type of the elements, which can be of any
+            // data type, as in Spark Classic, of the `DataType` and the `StructType` of the
+            // session's module.
+            let module = py.import(pyo3::intern!(py, "pyspark.sql.connect.session"))?;
+            if let Some(element) = &schema {
+                if element.is_instance(&module.getattr(pyo3::intern!(py, "DataType"))?)?
+                    && !element.is_instance(&module.getattr(pyo3::intern!(py, "StructType"))?)?
+                {
+                    return Ok(slf
+                        .call_method1(
+                            pyo3::intern!(py, "_create_dataframe_from_connect_rdd"),
+                            (data, element, samplingRatio, verify),
+                        )?
+                        .unbind());
+                }
+            }
+            // Any other schema is then an `AtomicType` or a `StructType`, a list or a tuple, or
+            // None (`_check_schema` of the session's module).
+            module
                 .getattr(pyo3::intern!(py, "_check_schema"))?
                 .call1((schema.clone().unwrap_or_else(|| py.None().into_bound(py)),))?;
             // PySpark's `_cols`, of a list or a tuple of names, each re-encoded as UTF-8 unless it
-            // is a str, else its `_schema`, and its `verifySchema`, true when it is None.
+            // is a str, else its `_schema`.
             let schema = match schema {
                 Some(names)
                     if names.is_instance_of::<pyo3::types::PyList>()
@@ -4022,10 +4037,6 @@ impl PySparkSession {
                 Some(schema) => schema,
                 None => py.None().into_bound(py),
             };
-            let verify = match verifySchema {
-                Some(verify) if !verify.is_none() => verify.clone(),
-                _ => pyo3::types::PyBool::new(py, true).to_owned().into_any(),
-            };
             return Ok(slf
                 .call_method1(
                     pyo3::intern!(py, "_create_dataframe_from_connect_rdd"),
@@ -4033,6 +4044,12 @@ impl PySparkSession {
                 )?
                 .unbind());
         }
+        // As PySpark's createDataFrame, which checks its schema, of a DDL string as the server
+        // parses it, against the `AtomicType` and the `StructType` of its module of the session,
+        // which it binds with the first session, of any data and before it reads any setting
+        // (`pyspark_checked_schema`): of a DDL string so parsed, the parsed type is the schema.
+        let parsed = pyspark_checked_schema(py, &this, schema)?;
+        let schema = parsed.as_ref().or(schema);
         // The local data, which the core converts and sends.
         let local = (|| -> PyResult<crate::dataframe::NewDataFrame> {
             // Data of no rows, of any kind that PySpark takes the length of, under a struct whose

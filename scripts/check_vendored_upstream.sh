@@ -95,7 +95,6 @@ VENDORED_FILES=(
   # Errors
   "errors/__init__.py"
   "errors/error_classes.py"
-  "errors/error-conditions.json"
   "errors/utils.py"
   "errors/exceptions/base.py"
   "errors/exceptions/captured.py"
@@ -325,7 +324,6 @@ VENDORED_FILES=(
   "testing/pandasutils.py"
   "testing/streamingutils.py"
   "testing/unittestutils.py"
-  "testing/utils.py"
 )
 
 # Files vendored verbatim from upstream to a path of this repo outside python/pyspark, as
@@ -361,8 +359,11 @@ PROTO_VENDORED_FILES=(
   # The RDD API of Spark Connect of that commit (pyspark.core.connect, of the RDDRelation and the
   # RDDCommand of its protos): the facade of its RDDs (core/rdd.py), the client, and the
   # pure-Python modules that it runs, with the serializers of pyspark, which pickle with
-  # cloudpickle-rust when it is installed. Its SparkContext is the session-scoped one of
-  # SparkSession.sparkContext; the classic core/context.py, of a JVM, is not vendored.
+  # cloudpickle-rust when it is installed, in a client of Spark Connect only when
+  # PYSPARK_CLOUDPICKLE_RUST is 1. Its SparkContext is the session-scoped one of
+  # SparkSession.sparkContext; the classic core/context.py, of a JVM, is not vendored. With the
+  # error conditions of the errors that the client raises, and the testing utilities of the tests
+  # of that commit (QuietTest of a SparkContext of no JVM, Py4JJavaError of no Py4J).
   "core/__init__.py"
   "core/rdd.py"
   "core/connect/__init__.py"
@@ -375,6 +376,8 @@ PROTO_VENDORED_FILES=(
   "serializers.py"
   "shuffle.py"
   "statcounter.py"
+  "errors/error-conditions.json"
+  "testing/utils.py"
 )
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -32,8 +32,13 @@ def _drift_gate_paths():
         assert body is not None, f"{name} not found in check_vendored_upstream.sh"
         return _quoted(body.group(1))
 
-    # Ruff reads only Python sources, so e.g. errors/error-conditions.json has no entry.
-    files = [f for f in array("VENDORED_FILES") if f.endswith((".py", ".pyi"))]
+    # Ruff reads only Python sources, so e.g. errors/error-conditions.json has no entry. The
+    # files vendored from the commit of the protos (PROTO_VENDORED_FILES) are vendored too.
+    files = [
+        f
+        for f in array("VENDORED_FILES") + array("PROTO_VENDORED_FILES")
+        if f.endswith((".py", ".pyi"))
+    ]
     return [f"python/pyspark/{p}" for p in array("VENDORED_DIRS") + files]
 
 
@@ -50,7 +55,8 @@ def test_ruff_excludes_match_the_drift_gate():
     only_ruff = sorted(set(ruff) - set(gate))
     assert not only_gate and not only_ruff, (
         "the vendored block of [tool.ruff] extend-exclude in pyproject.toml and "
-        "VENDORED_DIRS/VENDORED_FILES in scripts/check_vendored_upstream.sh differ.\n"
+        "VENDORED_DIRS/VENDORED_FILES/PROTO_VENDORED_FILES in scripts/check_vendored_upstream.sh "
+        "differ.\n"
         f"  only in the drift gate (add to pyproject.toml): {only_gate}\n"
         f"  only in pyproject.toml (remove, or add to the drift gate): {only_ruff}"
     )

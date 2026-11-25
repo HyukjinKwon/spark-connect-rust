@@ -449,14 +449,21 @@ pub fn read_dataframe(
             options,
         } => {
             let child = plan.child.as_ref().expect("the plan of a Parse").bind(py);
-            let input = child.cast::<crate::dataframe::PyNativePlan>()?;
+            // The DataFrame of the strings: of the plan of the core, or of a plan of the Python
+            // client, which PySpark's `Parse` builds of its `plan(session)` as well, such as the
+            // plan of a DataFrame of the RDD API of Spark Connect, of `DataFrame(plan, session)`
+            // (see `_strings_of_rdd`), whose DataFrame the core builds as of that DataFrame.
+            let input = match child.cast::<crate::dataframe::PyNativePlan>() {
+                Ok(native) => native.borrow().dataframe.clone(),
+                Err(_) => {
+                    crate::dataframe::dataframe_of_python_plan(child, client, session.clone())?.0
+                }
+            };
             let mut reader = session.read().schema(schema.clone().unwrap_or_default());
             for (key, value) in options {
                 reader = reader.option(key, value);
             }
-            reader
-                .parse(*format, &input.borrow().dataframe)
-                .to_pyerr()?
+            reader.parse(*format, &input).to_pyerr()?
         }
     };
     Ok(PyDataFrame::new(with_plan_error(df, plan.error.clone()))

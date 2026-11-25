@@ -30,7 +30,6 @@ dependencies = [
     "pyarrow>=18.0.0",
     "numpy>=1.23.2",
     "pyyaml>=3.11",
-    "cloudpickle-rust>=0.3.0",
 ]
 # The dependencies and minimum versions of pyspark-client 4.3.0
 # (python/packaging/client/setup.py of Apache Spark v4.3.0), except its gRPC ones. The vendored
@@ -39,17 +38,24 @@ dependencies = [
 # (pyspark/pipelines/cli.py) imports yaml.
 #
 # cloudpickle is vendored at pyspark/cloudpickle (matching Apache Spark's own
-# bundling), so it is intentionally NOT an external dependency. cloudpickle-rust, a faster
-# implementation of it, is: the serializers of pyspark (vendored from the commit of the protos,
-# with the RDD API) pickle the closures of UDFs and RDDs with it when it is installed, from 0.3.0
-# on, and fall back to the vendored cloudpickle otherwise.
+# bundling), so it is intentionally NOT an external dependency. Nor is cloudpickle-rust, a faster
+# implementation of it, an optional dependency (see below): the serializers of pyspark (vendored
+# from the commit of the protos, with the RDD API) pickle the closures of UDFs and RDDs with it
+# only when it is installed and PYSPARK_CLOUDPICKLE_RUST is 1, as the client of a Spark Connect
+# server whose Python workers load its payloads (a server of that commit or later, or one that
+# has cloudpickle-rust for its workers).
 #
-# No optional-dependencies: unlike upstream PySpark's `connect` extra, this
+# No `connect` extra: unlike upstream PySpark's, this
 # package has no pure-Python gRPC client — the Rust extension (pyspark._pyspark)
 # speaks gRPC via tonic, so grpcio, grpcio-status, googleapis-common-protos and
 # zstandard (which pyspark-client requires) are not imported at runtime, but by the
 # retry policies of SparkConnectClient (pyspark.sql.connect.client.retries, vendored
 # from Apache Spark), which import grpcio, grpcio-status and googleapis-common-protos.
+
+# The one extra: cloudpickle-rust, of which the closures of UDFs and RDDs pickle faster with
+# PYSPARK_CLOUDPICKLE_RUST=1 (see above).
+[project.optional-dependencies]
+cloudpickle-rust = ["cloudpickle-rust>=0.3.0"]
 
 [project.urls]
 Homepage = "https://spark.apache.org/"
@@ -319,8 +325,20 @@ extend-exclude = [
     "python/pyspark/testing/pandasutils.py",
     "python/pyspark/testing/streamingutils.py",
     "python/pyspark/testing/unittestutils.py",
+    # The RDD API of Spark Connect, of the commit of the protos (PROTO_VENDORED_FILES).
+    "python/pyspark/core/__init__.py",
+    "python/pyspark/core/rdd.py",
+    "python/pyspark/core/connect/__init__.py",
+    "python/pyspark/core/connect/_runtime.py",
+    "python/pyspark/core/connect/context.py",
+    "python/pyspark/core/connect/rdd.py",
+    "python/pyspark/join.py",
+    "python/pyspark/rddsampler.py",
+    "python/pyspark/resultiterable.py",
+    "python/pyspark/shuffle.py",
+    "python/pyspark/statcounter.py",
     "python/pyspark/testing/utils.py",
-    # --- vendored from Apache Spark: END ---
+# --- vendored from Apache Spark: END ---
     # Also byte-identical to Apache Spark v4.3.0, but not listed in the drift gate (yet).
     # Linting them would make them drift; when one is added to VENDORED_FILES, move its
     # entry into the block above.

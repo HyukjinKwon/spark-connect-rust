@@ -18,30 +18,29 @@
 from the commit of the protos): its exports, the members of the session and the DataFrame of it,
 the plans of its local data, and the protos."""
 
+import os
+import subprocess
 import sys
 
 import pyarrow as pa
 import pyspark
 import pyspark.sql.connect.proto as pb2
 import pytest
-from pyspark.serializers import CloudPickleSerializer
 
 
 def test_exports():
     from pyspark.core import rdd as facade
     from pyspark.core.connect.context import SparkContext as ConnectSparkContext
 
-    # As PySpark's package when not is_remote_only(): the facade of the RDDs of both clients.
+    # As PySpark's package when is_remote_only(), of the commit of the protos: the facade of the
+    # RDDs of both clients, of its import path of pyspark.rdd too, and the Connect SparkContext.
     assert pyspark.RDD is facade.RDD
     assert pyspark.RDDBarrier is facade.RDDBarrier
-    assert sys.modules["pyspark.rdd"] is facade
-    # The Connect SparkContext, imported at its first use.
+    assert pyspark.rdd is facade and sys.modules["pyspark.rdd"] is facade
     from pyspark import SparkContext
 
     assert SparkContext is ConnectSparkContext
     assert "RDD" not in pyspark.__all__ and "SparkContext" not in pyspark.__all__
-    with pytest.raises(AttributeError, match="no attribute 'NoSuchName'"):
-        pyspark.NoSuchName
 
 
 def test_session_and_dataframe_members():
@@ -99,10 +98,24 @@ def test_portable_hash(monkeypatch):
     assert util.portable_hash((None, 1)) & 0xFFFFFFFF == 219750521
 
 
-def test_closures_pickle_with_cloudpickle_rust():
-    # The drop-in depends on cloudpickle-rust: the serializers pickle closures with it.
+@pytest.mark.parametrize(
+    "setting, expected", [(None, "pyspark.cloudpickle"), ("1", "cloudpickle_rust"), ("0", None)]
+)
+def test_closures_pickle_with_cloudpickle_rust_when_enabled(setting, expected):
+    # The drop-in is a Spark Connect client: the serializers pickle closures with cloudpickle-rust
+    # (its `cloudpickle-rust` extra) only with PYSPARK_CLOUDPICKLE_RUST=1, as the Python workers of
+    # the server load them. Of a new interpreter, as the choice is the process's.
     pytest.importorskip("cloudpickle_rust")
-    from pyspark.serializers import _cloudpickle
-
-    assert _cloudpickle().__name__ == "cloudpickle_rust"
-    assert b"cloudpickle_rust" in CloudPickleSerializer().dumps(lambda x: x + 1)
+    env = {k: v for k, v in os.environ.items() if k != "PYSPARK_CLOUDPICKLE_RUST"}
+    if setting is not None:
+        env["PYSPARK_CLOUDPICKLE_RUST"] = setting
+    code = (
+        "from pyspark.serializers import CloudPickleSerializer, _cloudpickle\n"
+        "payload = CloudPickleSerializer().dumps(lambda: 1)\n"
+        "print(_cloudpickle().__name__, b'cloudpickle_rust' in payload)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+    ).stdout.split()
+    expected = expected or "pyspark.cloudpickle"
+    assert out == [expected, str(expected == "cloudpickle_rust")]

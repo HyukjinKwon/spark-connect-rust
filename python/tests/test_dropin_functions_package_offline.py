@@ -212,12 +212,14 @@ def test_the_functions_of_spark_connect_call_those_of_their_module_at_the_call(m
 
 def test_without_the_shared_namespace_the_functions_run_pysparks_classic_bodies(monkeypatch):
     # pyspark-client: with PYSPARK_NO_NAMESPACE_SHARE, try_remote_functions runs the function's
-    # own body, of Spark Classic, which a client of Spark Connect only cannot run: col imports the
-    # SparkContext of pyspark, sum and bucket the module pyspark.sql.classic. The drop-in's
-    # functions ignored it.
+    # own body, of Spark Classic, which a client of Spark Connect only cannot run: col asserts the
+    # active SparkContext of Spark Classic of the SparkContext of pyspark, of the RDD API of Spark
+    # Connect the one of its sessions, which never has one, sum and bucket import the module
+    # pyspark.sql.classic. The drop-in's functions ignored it.
     monkeypatch.setenv("PYSPARK_NO_NAMESPACE_SHARE", "1")
-    with pytest.raises(ImportError, match="cannot import name 'SparkContext' from 'pyspark'"):
+    with pytest.raises(AssertionError) as raised:
         F.col("a")
+    assert raised.traceback[-1].name == "_invoke_function"
     for call in (lambda: F.sum("a"), lambda: F.partitioning.bucket(2, "a")):
         with pytest.raises(ModuleNotFoundError, match="No module named 'pyspark.sql.classic'"):
             call()

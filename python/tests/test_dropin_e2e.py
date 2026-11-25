@@ -8378,10 +8378,12 @@ def test_the_functions_run_those_of_spark_connect_of_their_names_as_pysparks(
     monkeypatch.undo()
     assert df.select(F.upper("s")).first()[0] == "AB"
     # PYSPARK_NO_NAMESPACE_SHARE makes them run their own bodies, of Spark Classic, which a
-    # client of Spark Connect cannot.
+    # client of Spark Connect cannot: col asserts the active SparkContext of Spark Classic, which
+    # the SparkContext of pyspark, of the sessions of Spark Connect, never has.
     monkeypatch.setenv("PYSPARK_NO_NAMESPACE_SHARE", "1")
-    with pytest.raises(ImportError, match="cannot import name 'SparkContext' from 'pyspark'"):
+    with pytest.raises(AssertionError) as raised:
         F.col("s")
+    assert raised.traceback[-1].name == "_invoke_function"
     monkeypatch.delenv("PYSPARK_NO_NAMESPACE_SHARE")
     assert df.select(F.col("s")).first().s == "aB"
 
