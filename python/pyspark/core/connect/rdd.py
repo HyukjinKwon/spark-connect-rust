@@ -114,7 +114,7 @@ from pyspark.shuffle import (
 from pyspark.sql.connect.logging import logger
 from pyspark.statcounter import StatCounter
 from pyspark.storagelevel import StorageLevel
-from pyspark.util import _parse_memory, fail_on_stopiteration, portable_hash
+from pyspark.util import PythonEvalType, _parse_memory, fail_on_stopiteration, portable_hash
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -129,14 +129,28 @@ __all__ = ["RDD", "RDDBarrier"]
 
 class _RDDRelationPlan:
     """
-    The plan of a relation of the RDD API (``RDDRelation``): ``fill`` writes its relation type,
-    with the relations of its inputs, the plans of the DataFrames of other RDDs.
+    The plan of a relation of the RDD API: ``fill`` writes its relation type, of ``RDDRelation``,
+    or another relation, as the ``MapPartitions`` of the functions of RDDs, with the relations of
+    its inputs, the plans of the DataFrames of other RDDs.
     """
 
     @staticmethod
     def dataframe(
         ctx: "SparkContext",
         fill: Callable[[pb2.RDDRelation, Any], None],
+        child: Optional["ConnectDataFrame"] = None,
+    ) -> "ConnectDataFrame":
+        """A DataFrame of the ``RDDRelation`` that ``fill`` writes."""
+
+        def fill_relation(relation: pb2.Relation, session: Any) -> None:
+            fill(relation.rdd_relation, session)
+
+        return _RDDRelationPlan.relation_dataframe(ctx, fill_relation, child)
+
+    @staticmethod
+    def relation_dataframe(
+        ctx: "SparkContext",
+        fill: Callable[[pb2.Relation, Any], None],
         child: Optional["ConnectDataFrame"] = None,
     ) -> "ConnectDataFrame":
         """A DataFrame of the relation that ``fill`` writes."""
@@ -150,10 +164,23 @@ class _RDDRelationPlan:
 
             def plan(self, session: Any) -> pb2.Relation:
                 relation = self._create_proto_relation()
-                fill(relation.rdd_relation, session)
+                fill(relation, session)
                 return relation
 
         return DataFrame(RDDRelation(), ctx._session)
+
+
+def _function_output_type(pairs: bool) -> pb2.DataType:
+    """
+    The output type of the ``PythonUDF`` of eval type NON_UDF of a function of RDDs: its values,
+    ``struct<value: binary>``, or its keys and values, ``struct<key: int not null, value: binary>``.
+    """
+    binary = pb2.DataType(binary=pb2.DataType.Binary())
+    fields = [pb2.DataType.StructField(name="value", data_type=binary, nullable=True)]
+    if pairs:
+        integer = pb2.DataType(integer=pb2.DataType.Integer())
+        fields.insert(0, pb2.DataType.StructField(name="key", data_type=integer, nullable=False))
+    return pb2.DataType(struct=pb2.DataType.Struct(fields=fields))
 
 
 def _relation(df: "ConnectDataFrame", session: Any) -> pb2.Relation:
@@ -813,24 +840,25 @@ class RDD(RDDFacade, Generic[T_co]):
         Shuffle the batches that ``keyed`` writes after their partition index, as the PairwiseRDD
         of Spark Classic reads them, into ``num_partitions`` partitions.
         """
+        server_partitioner = None if partitioner_id is None else (num_partitions, partitioner_id)
+        deserializer = BatchedSerializer(self.ctx._unbatched_serializer)
+        if num_partitions <= 0:
+            # A ShuffledRDD of Spark Classic without partitions: no job computes its input.
+            empty_df = self._cctx.emptyRDD()._df
+            return RDD(empty_df, self._cctx, deserializer, 0, server_partitioner)
+
         keyed._bypass_serializer = True  # type: ignore[attr-defined]
         keyed._output_pairs = True  # type: ignore[attr-defined]
-        keyed_df = keyed._df
-
-        def shuffle(relation: pb2.RDDRelation, session: Any) -> None:
-            relation.shuffle.input.CopyFrom(_relation(keyed_df, session))
-            relation.shuffle.num_partitions = num_partitions
-
-        shuffled_df = _RDDRelationPlan.dataframe(self._cctx, shuffle, keyed_df)
+        # The pairs move to the partitions of their keys.
+        shuffled_df = cast("ConnectDataFrame", keyed._df.repartitionById(num_partitions, "key"))
 
         def values(relation: pb2.RDDRelation, session: Any) -> None:
             relation.values.input.CopyFrom(_relation(shuffled_df, session))
 
-        server_partitioner = None if partitioner_id is None else (num_partitions, partitioner_id)
         return RDD(
             _RDDRelationPlan.dataframe(self._cctx, values, shuffled_df),
             self._cctx,
-            BatchedSerializer(self.ctx._unbatched_serializer),
+            deserializer,
             num_partitions,
             server_partitioner,
             has_shuffle=True,
@@ -2171,16 +2199,19 @@ class PipelinedRDD(RDD[U], Generic[T, U]):
         is_barrier = self.is_barrier
         output_pairs = self._output_pairs
 
-        def map_partitions(relation: pb2.RDDRelation, session: Any) -> None:
+        def map_partitions(relation: pb2.Relation, session: Any) -> None:
+            # The MapPartitions relation of a Python function of eval type NON_UDF.
             mp = relation.map_partitions
             mp.input.CopyFrom(_relation(input_df, session))
-            mp.command = pickled_command
-            mp.python_ver = python_ver
             mp.is_barrier = is_barrier
-            mp.python_hash_seed = hash_seed
-            mp.output_pairs = output_pairs
+            udf = mp.func.python_udf
+            udf.output_type.CopyFrom(_function_output_type(output_pairs))
+            udf.eval_type = PythonEvalType.NON_UDF
+            udf.command = pickled_command
+            udf.python_ver = python_ver
+            udf.python_hash_seed = hash_seed
 
-        self._df_cache = _RDDRelationPlan.dataframe(self._cctx, map_partitions, input_df)
+        self._df_cache = _RDDRelationPlan.relation_dataframe(self._cctx, map_partitions, input_df)
         return self._df_cache
 
     def _set_df(self, df: "ConnectDataFrame") -> None:

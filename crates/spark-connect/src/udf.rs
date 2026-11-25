@@ -1717,6 +1717,7 @@ mod tests {
                                 python_ver: "3.11".to_string(),
                                 additional_includes: vec!["kept".to_string()],
                                 buffer_type: None,
+                                python_hash_seed: None,
                             },
                         ),
                     ),

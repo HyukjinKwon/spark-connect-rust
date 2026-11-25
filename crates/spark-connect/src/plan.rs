@@ -1258,8 +1258,6 @@ macro_rules! rdd_relation_inputs_of {
     ($relation_type:expr, $deref:ident, $iter:ident) => {{
         use proto::rdd_relation::RelationType as Rdd;
         match $relation_type {
-            Some(Rdd::MapPartitions(r)) => vec![r.input.$deref()],
-            Some(Rdd::Shuffle(r)) => vec![r.input.$deref()],
             Some(Rdd::Values(r)) => vec![r.input.$deref()],
             Some(Rdd::Union(r)) => r.inputs.$iter().map(Some).collect(),
             Some(Rdd::ZipPartitions(r)) => r.inputs.$iter().map(Some).collect(),
@@ -5843,20 +5841,6 @@ mod placeholder_tests {
             )))
         };
         let one_input: Vec<OneInput<'_>> = vec![
-            Box::new(|r| {
-                Rdd::MapPartitions(Box::new(rdd::MapPartitions {
-                    input: input(r),
-                    command: vec![1, 2, 3].into(),
-                    python_ver: "3.11".to_string(),
-                    ..Default::default()
-                }))
-            }),
-            Box::new(|r| {
-                Rdd::Shuffle(Box::new(rdd::Shuffle {
-                    input: input(r),
-                    num_partitions: 4,
-                }))
-            }),
             Box::new(|r| Rdd::Values(Box::new(rdd::Values { input: input(r) }))),
             Box::new(|r| {
                 Rdd::Coalesce(Box::new(rdd::Coalesce {
@@ -5922,6 +5906,61 @@ mod placeholder_tests {
             assert_eq!(plan, of(build(&relation, &other)));
             assert_eq!(relation_inputs(&plan), vec![&relation, &other]);
         }
+        // The functions and the shuffles of RDDs are relations of DataFrames: the values of a
+        // `RepartitionByExpression` of `DirectShufflePartitionID(key)` of the pairs of the
+        // `MapPartitions` of a Python function of eval type NON_UDF.
+        let shuffle_of = |r: &proto::Relation| {
+            let function = proto::MapPartitions {
+                input: input(r),
+                func: Some(proto::CommonInlineUserDefinedFunction {
+                    function: Some(
+                        proto::common_inline_user_defined_function::Function::PythonUdf(
+                            proto::PythonUdf {
+                                eval_type: 0,
+                                command: vec![1, 2, 3].into(),
+                                python_ver: "3.11".to_string(),
+                                python_hash_seed: Some("0".to_string()),
+                                ..Default::default()
+                            },
+                        ),
+                    ),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let key = proto::Expression {
+                expr_type: Some(proto::expression::ExprType::UnresolvedAttribute(
+                    proto::expression::UnresolvedAttribute {
+                        unparsed_identifier: "key".to_string(),
+                        ..Default::default()
+                    },
+                )),
+                ..Default::default()
+            };
+            let partition_id = proto::Expression {
+                expr_type: Some(proto::expression::ExprType::DirectShufflePartitionId(
+                    Box::new(proto::expression::DirectShufflePartitionId {
+                        child: Some(Box::new(key)),
+                    }),
+                )),
+                ..Default::default()
+            };
+            let shuffle = relation_of(proto::relation::RelType::RepartitionByExpression(Box::new(
+                proto::RepartitionByExpression {
+                    input: Some(Box::new(relation_of(
+                        proto::relation::RelType::MapPartitions(Box::new(function)),
+                    ))),
+                    partition_exprs: vec![partition_id],
+                    num_partitions: Some(4),
+                },
+            )));
+            of(Rdd::Values(Box::new(rdd::Values {
+                input: Some(Box::new(shuffle)),
+            })))
+        };
+        let mut plan = shuffle_of(&standalone);
+        resolve_relation(&mut plan).unwrap();
+        assert_eq!(plan, shuffle_of(&relation));
         // An RDD relation of no relation type has no input.
         assert!(
             relation_inputs(&relation_of(proto::relation::RelType::RddRelation(
