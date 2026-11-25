@@ -938,7 +938,7 @@ Timestamp = _CLASSES["google.protobuf.Timestamp"]
 
 # The generated modules that ``pyspark.sql.connect.proto`` star-imports, in its order.
 _EXPORTED = ("base", "types", "commands", "expressions", "relations", "catalog", "common", "ml",
-             "ml_common", "pipelines")  # fmt: skip
+             "ml_common", "pipelines", "rdd")  # fmt: skip
 
 
 def _path_in_package(file_name: str) -> tuple[str, str]:

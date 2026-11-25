@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "ml",
         "ml_common",
         "pipelines",
+        "rdd",
         "relations",
         "types",
     ]

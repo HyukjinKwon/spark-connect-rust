@@ -1167,11 +1167,12 @@ pub(crate) fn child_observations(
 /// its fields, for [`relation_inputs`] and [`relation_inputs_mut`]: the input of a relation of one
 /// input, both sides of a join, a set operation or a zip, the input and the initial input of a
 /// `GroupMap`, both inputs of a `CoGroupMap`, and the root and the references of a
-/// `WithRelations`. An `MlRelation`, whose fetched arguments are a level of their own, and an
-/// extension, whose message the core does not know, are none of them, nor is a relation of no
-/// input.
+/// `WithRelations`, and the inputs of the relation of an `RDDRelation` (see
+/// [`rdd_relation_inputs_of`]). An `MlRelation`, whose fetched arguments are a level of their own,
+/// and an extension, whose message the core does not know, are none of them, nor is a relation of
+/// no input.
 macro_rules! relation_inputs_of {
-    ($rel_type:expr, $deref:ident, $iter:ident) => {
+    ($rel_type:expr, $deref:ident, $iter:ident, $opt:ident) => {
         match $rel_type {
             Some(RelType::Project(r)) => vec![r.input.$deref()],
             Some(RelType::Filter(r)) => vec![r.input.$deref()],
@@ -1212,6 +1213,9 @@ macro_rules! relation_inputs_of {
             Some(RelType::NearestByJoin(r)) => vec![r.left.$deref(), r.right.$deref()],
             Some(RelType::Zip(r)) => vec![r.left.$deref(), r.right.$deref()],
             Some(RelType::BinBy(r)) => vec![r.input.$deref()],
+            Some(RelType::RddRelation(r)) => {
+                rdd_relation_inputs_of!(r.relation_type.$opt(), $deref, $iter)
+            }
             Some(RelType::FillNa(r)) => vec![r.input.$deref()],
             Some(RelType::DropNa(r)) => vec![r.input.$deref()],
             Some(RelType::Replace(r)) => vec![r.input.$deref()],
@@ -1245,11 +1249,35 @@ macro_rules! relation_inputs_of {
     };
 }
 
+/// The inputs of the relation type of an `RDDRelation` of the RDD API of the Python client, for
+/// [`relation_inputs_of`]: the input of a relation of one input (a `MapPartitions`, `Shuffle`,
+/// `Values`, `Coalesce`, `FromDataFrame`, `ToDataFrame` or `Elements`), the inputs of a `Union`
+/// or a `ZipPartitions`, both sides of a `Cartesian`, and the local data of a `Parallelize`.
+macro_rules! rdd_relation_inputs_of {
+    ($relation_type:expr, $deref:ident, $iter:ident) => {{
+        use proto::rdd_relation::RelationType as Rdd;
+        match $relation_type {
+            Some(Rdd::MapPartitions(r)) => vec![r.input.$deref()],
+            Some(Rdd::Shuffle(r)) => vec![r.input.$deref()],
+            Some(Rdd::Values(r)) => vec![r.input.$deref()],
+            Some(Rdd::Union(r)) => r.inputs.$iter().map(Some).collect(),
+            Some(Rdd::ZipPartitions(r)) => r.inputs.$iter().map(Some).collect(),
+            Some(Rdd::Cartesian(r)) => vec![r.left.$deref(), r.right.$deref()],
+            Some(Rdd::Coalesce(r)) => vec![r.input.$deref()],
+            Some(Rdd::Parallelize(r)) => vec![r.data.$deref()],
+            Some(Rdd::FromDataFrame(r)) => vec![r.input.$deref()],
+            Some(Rdd::ToDataFrame(r)) => vec![r.input.$deref()],
+            Some(Rdd::Elements(r)) => vec![r.input.$deref()],
+            None => Vec::new(),
+        }
+    }};
+}
+
 /// The inputs of `relation` (see [`relation_inputs_of`]).
 fn relation_inputs(relation: &proto::Relation) -> Vec<&proto::Relation> {
     use proto::relation::RelType;
     let inputs: Vec<Option<&proto::Relation>> =
-        relation_inputs_of!(&relation.rel_type, as_deref, iter);
+        relation_inputs_of!(&relation.rel_type, as_deref, iter, as_ref);
     inputs.into_iter().flatten().collect()
 }
 
@@ -1257,7 +1285,7 @@ fn relation_inputs(relation: &proto::Relation) -> Vec<&proto::Relation> {
 fn relation_inputs_mut(relation: &mut proto::Relation) -> Vec<&mut proto::Relation> {
     use proto::relation::RelType;
     let inputs: Vec<Option<&mut proto::Relation>> =
-        relation_inputs_of!(&mut relation.rel_type, as_deref_mut, iter_mut);
+        relation_inputs_of!(&mut relation.rel_type, as_deref_mut, iter_mut, as_mut);
     inputs.into_iter().flatten().collect()
 }
 
@@ -1590,6 +1618,8 @@ fn holds_expressions(relation: &proto::Relation) -> bool {
             | RelType::HtmlString(_)
             | RelType::WithRelations(_)
             | RelType::Zip(_)
+            // The commands of its Python functions are pickled, not expressions.
+            | RelType::RddRelation(_)
             | RelType::FillNa(_)
             | RelType::DropNa(_)
             | RelType::Replace(_)
@@ -1998,6 +2028,10 @@ fn command_relation_mut(command: &mut proto::Command) -> Option<&mut proto::Rela
         CommandType::WriteStreamOperationStart(write) => write.input.as_mut(),
         CommandType::CheckpointCommand(checkpoint) => checkpoint.relation.as_mut(),
         CommandType::MergeIntoTableCommand(merge) => merge.source_table_plan.as_mut(),
+        CommandType::RddCommand(rdd) => match rdd.command_type.as_mut()? {
+            proto::rdd_command::CommandType::Describe(describe) => describe.rdd.as_mut(),
+            proto::rdd_command::CommandType::GetContextInfo(_) => None,
+        },
         CommandType::PipelineCommand(pipeline) => match pipeline.command_type.as_mut()? {
             PipelineCommandType::DefineFlow(flow) => match flow.details.as_mut()? {
                 Details::RelationFlowDetails(details) => details.relation.as_mut(),
@@ -5780,6 +5814,133 @@ mod placeholder_tests {
         assert_eq!(plan, bin_by(&relation));
         assert_eq!(relation_inputs(&plan), vec![&relation]);
         assert!(holds_expressions(&plan));
+    }
+
+    #[test]
+    fn placeholders_resolve_in_the_inputs_of_an_rdd_relation() {
+        // The relations of the RDD API of the Python client (pyspark.core.connect), which it
+        // builds over the relations of DataFrames, which placeholders stand for: each input of
+        // each relation type, in the order of its fields, and the RDD of an `RDDCommand`.
+        use proto::rdd_relation::{self as rdd, RelationType as Rdd};
+        let ids = Arc::new(PlanIds::new());
+        let node = Arc::new(range(0, 3, 1));
+        let relation = relation_with_ids(&node, &ids).unwrap();
+        let standalone = placeholder(&node, &ids);
+        let other_node = Arc::new(range(0, 5, 1));
+        let other = relation_with_ids(&other_node, &ids).unwrap();
+        let other_standalone = placeholder(&other_node, &ids);
+        let input = |r: &proto::Relation| Some(Box::new(r.clone()));
+        let of = |relation_type: Rdd| {
+            relation_of(proto::relation::RelType::RddRelation(Box::new(
+                proto::RddRelation {
+                    relation_type: Some(relation_type),
+                },
+            )))
+        };
+        let one_input: Vec<Box<dyn Fn(&proto::Relation) -> Rdd>> = vec![
+            Box::new(|r| {
+                Rdd::MapPartitions(Box::new(rdd::MapPartitions {
+                    input: input(r),
+                    command: vec![1, 2, 3].into(),
+                    python_ver: "3.11".to_string(),
+                    ..Default::default()
+                }))
+            }),
+            Box::new(|r| {
+                Rdd::Shuffle(Box::new(rdd::Shuffle {
+                    input: input(r),
+                    num_partitions: 4,
+                }))
+            }),
+            Box::new(|r| Rdd::Values(Box::new(rdd::Values { input: input(r) }))),
+            Box::new(|r| {
+                Rdd::Coalesce(Box::new(rdd::Coalesce {
+                    input: input(r),
+                    num_partitions: 2,
+                }))
+            }),
+            Box::new(|r| {
+                Rdd::Parallelize(Box::new(rdd::Parallelize {
+                    data: input(r),
+                    num_slices: 3,
+                }))
+            }),
+            Box::new(|r| Rdd::FromDataFrame(Box::new(rdd::FromDataFrame { input: input(r) }))),
+            Box::new(|r| {
+                Rdd::ToDataFrame(Box::new(rdd::ToDataFrame {
+                    input: input(r),
+                    schema: None,
+                }))
+            }),
+            Box::new(|r| {
+                Rdd::Elements(Box::new(rdd::Elements {
+                    input: input(r),
+                    partitions: Some(proto::Ints { values: vec![0, 2] }),
+                }))
+            }),
+        ];
+        for build in &one_input {
+            let mut plan = of(build(&standalone));
+            resolve_relation(&mut plan).unwrap();
+            assert_eq!(plan, of(build(&relation)));
+            assert_eq!(relation_inputs(&plan), vec![&relation]);
+            assert!(!holds_expressions(&plan));
+        }
+        let two_inputs: Vec<Box<dyn Fn(&proto::Relation, &proto::Relation) -> Rdd>> = vec![
+            Box::new(|a, b| {
+                Rdd::Union(rdd::Union {
+                    inputs: vec![a.clone(), b.clone()],
+                })
+            }),
+            Box::new(|a, b| {
+                Rdd::ZipPartitions(rdd::ZipPartitions {
+                    inputs: vec![a.clone(), b.clone()],
+                    concatenate: true,
+                })
+            }),
+            Box::new(|a, b| {
+                Rdd::Cartesian(Box::new(rdd::Cartesian {
+                    left: input(a),
+                    right: input(b),
+                }))
+            }),
+        ];
+        for build in &two_inputs {
+            let mut plan = of(build(&standalone, &other_standalone));
+            resolve_relation(&mut plan).unwrap();
+            assert_eq!(plan, of(build(&relation, &other)));
+            assert_eq!(relation_inputs(&plan), vec![&relation, &other]);
+        }
+        // An RDD relation of no relation type has no input.
+        assert!(
+            relation_inputs(&relation_of(proto::relation::RelType::RddRelation(
+                Box::default()
+            )))
+            .is_empty()
+        );
+        // The RDD of `RDDCommand.Describe`, and the command of no relation.
+        let describe = |r: &proto::Relation| proto::Command {
+            command_type: Some(proto::command::CommandType::RddCommand(proto::RddCommand {
+                command_type: Some(proto::rdd_command::CommandType::Describe(
+                    proto::rdd_command::Describe {
+                        rdd: Some(r.clone()),
+                    },
+                )),
+            })),
+        };
+        let mut command = describe(&standalone);
+        resolve_command(&mut command, None).unwrap();
+        assert_eq!(command, describe(&relation));
+        let mut info = proto::Command {
+            command_type: Some(proto::command::CommandType::RddCommand(proto::RddCommand {
+                command_type: Some(proto::rdd_command::CommandType::GetContextInfo(
+                    proto::rdd_command::GetContextInfo {},
+                )),
+            })),
+        };
+        let before = info.clone();
+        resolve_command(&mut info, None).unwrap();
+        assert_eq!(info, before);
     }
 
     #[test]

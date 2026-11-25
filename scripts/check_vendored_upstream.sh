@@ -355,6 +355,7 @@ PROTO_VENDORED_FILES=(
   "sql/connect/proto/ml_pb2.pyi"
   "sql/connect/proto/ml_common_pb2.pyi"
   "sql/connect/proto/pipelines_pb2.pyi"
+  "sql/connect/proto/rdd_pb2.pyi"
   "sql/connect/proto/example_plugins_pb2.pyi"
 )
 

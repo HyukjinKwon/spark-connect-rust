@@ -1546,6 +1546,9 @@ class SparkConnectClient:
                     }
                 if b.HasField("ml_command_result"):
                     yield {"ml_command_result": b.ml_command_result}
+                # The result of a command of the RDD API (pyspark.core.connect), as PySpark's.
+                if b.HasField("rdd_command_result"):
+                    yield {"rdd_command_result": b.rdd_command_result}
         finally:
             responses.close()
 
@@ -1810,6 +1813,13 @@ class SparkConnectClient:
             self.thread_local.tags = set()
         # Use discard, not remove: removing an absent tag is a documented no-op
         # (see SparkSession.removeTag), matching the Classic behavior.
+        self.thread_local.tags.discard(tag)
+
+    def _remove_tag_allow_missing(self, tag: str) -> None:
+        """Remove a thread-local tag if present (used by Connect SparkContext job-group helpers)."""
+        self._throw_if_invalid_tag(tag)
+        if not hasattr(self.thread_local, "tags"):
+            self.thread_local.tags = set()
         self.thread_local.tags.discard(tag)
 
     def get_tags(self) -> set[str]:
