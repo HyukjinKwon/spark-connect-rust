@@ -68,7 +68,8 @@ echo "Building the Spark Connect distribution of ${url} ${sha}"
 mkdir -p "${dir}"
 dir="$(cd "${dir}" && pwd)"
 src="${SPARK_SRC:-${dir}/src}"
-if [ ! -d "${src}/.git" ]; then
+# SPARK_SRC can be a checkout, or a worktree (whose .git is a file), of the commit already.
+if [ ! -e "${src}/.git" ]; then
   git init --quiet "${src}"
   git -C "${src}" remote add origin "${url}"
 fi
