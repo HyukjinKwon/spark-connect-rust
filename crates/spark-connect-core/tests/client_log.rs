@@ -60,6 +60,39 @@ async fn bounded<T>(future: impl Future<Output = T>) -> T {
         .expect("test RPC waited past the bound")
 }
 
+/// The stack of the thread of a test of [`on_test_stack`]. A test polls the futures of the client
+/// on its own thread, where no wait of `spark_connect_core::runtime::block_on` moves them to a
+/// segment of their own, and in a debug build, as the coverage's, each temporary of the body of a
+/// test keeps a slot of its frame. 16 MiB is the segment that the client's own waits poll on in a
+/// debug build.
+const TEST_STACK: usize = 16 << 20;
+
+/// Run the test of `body` as `#[tokio::test]` does, on a runtime of the current thread, but on a
+/// thread of [`TEST_STACK`] that has the name of the test's thread, and whose panic is the test's.
+fn on_test_stack<F, Fut>(body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()>,
+{
+    let mut thread = std::thread::Builder::new().stack_size(TEST_STACK);
+    if let Some(name) = std::thread::current().name() {
+        thread = thread.name(name.into());
+    }
+    let ended = thread
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("the runtime of a test")
+                .block_on(body())
+        })
+        .expect("the thread of a test")
+        .join();
+    if let Err(panic) = ended {
+        std::panic::resume_unwind(panic);
+    }
+}
+
 /// The records of the listener of a test, of the level that it logs from, and the text that a
 /// record starts with whose delivery fails, once, as the exception of a handler of the logger.
 struct Recorder {
@@ -599,127 +632,132 @@ async fn a_command_logs_before_its_compression_and_a_registration_logs_execute()
     );
 }
 
-#[tokio::test]
-async fn a_failed_lookup_is_logged_with_its_error_and_compression_of_its_sizes() {
-    // As PySpark's lookup, whose `except Exception` logs the exception that it caught as the
-    // argument of a text of no placeholder for it; and a plan over the threshold, compressed, of
-    // its sizes, and one that compression does not make smaller.
-    let failed = Fixture::start(None).await;
-    let recording = Recording::start(Level::Debug);
-    failed.script(vec![], End::Complete);
-    let mut stream = bounded(
-        failed
-            .client
-            .execute_plan_reattachable_logged(relation_request(), ExecutionLog::Fetch),
-    )
-    .await
-    .unwrap();
-    drain(&mut stream).await;
-    let texts_of_failure = recording.texts();
-    assert_eq!(
-        texts_of_failure[0],
-        (
-            Level::Debug,
-            format!(
-                "Plan compression is disabled because the server does not support it. % \
-                 <Some({})>",
-                Code::Internal as i32
+#[test]
+fn a_failed_lookup_is_logged_with_its_error_and_compression_of_its_sizes() {
+    // Of three executions of two clients, the body keeps a frame of about 800 KiB in a debug
+    // build, which takes the polls of an execution past the 2 MiB of a thread of libtest.
+    on_test_stack(|| async {
+        // As PySpark's lookup, whose `except Exception` logs the exception that it caught as the
+        // argument of a text of no placeholder for it; and a plan over the threshold, compressed,
+        // of its sizes, and one that compression does not make smaller.
+        let failed = Fixture::start(None).await;
+        let recording = Recording::start(Level::Debug);
+        failed.script(vec![], End::Complete);
+        let mut stream = bounded(
+            failed
+                .client
+                .execute_plan_reattachable_logged(relation_request(), ExecutionLog::Fetch),
+        )
+        .await
+        .unwrap();
+        drain(&mut stream).await;
+        let texts_of_failure = recording.texts();
+        assert_eq!(
+            texts_of_failure[0],
+            (
+                Level::Debug,
+                format!(
+                    "Plan compression is disabled because the server does not support it. % \
+                     <Some({})>",
+                    Code::Internal as i32
+                )
             )
-        )
-    );
-    assert_eq!(
-        texts_of_failure[1],
-        (Level::Debug, "ExecuteAndFetch".into())
-    );
-    drop(recording);
+        );
+        assert_eq!(
+            texts_of_failure[1],
+            (Level::Debug, "ExecuteAndFetch".into())
+        );
+        drop(recording);
 
-    let compressing = Fixture::start(Some(("4", "ZSTD"))).await;
-    let recording = Recording::start(Level::Debug);
-    let of_query = |query: &str| Relation {
-        rel_type: Some(spark_connect_proto::relation::RelType::Sql(
-            spark_connect_proto::Sql {
-                query: query.into(),
-                ..Default::default()
-            },
-        )),
-        ..Default::default()
-    };
-    // The sizes of the encoding of a relation and of its frame of zstd, of the level of
-    // python-zstandard's `compress`.
-    let sizes = |relation: &Relation| {
-        let encoded = relation.encode_to_vec();
-        let compressed = zstd::bulk::compress(&encoded, zstd::DEFAULT_COMPRESSION_LEVEL).unwrap();
-        (encoded.len(), compressed.len())
-    };
-    let (original, compressed) = sizes(&of_query(&"select 1".repeat(64)));
-    let large = ExecutePlanRequest {
-        plan: Some(Plan {
-            op_type: Some(plan::OpType::Root(of_query(&"select 1".repeat(64)))),
-        }),
-        ..relation_request()
-    };
-    compressing.script(vec![], End::Complete);
-    let mut stream = bounded(
-        compressing
-            .client
-            .execute_plan_reattachable_logged(large, ExecutionLog::ToTable),
-    )
-    .await
-    .unwrap();
-    drain(&mut stream).await;
-    let logged = recording.texts();
-    assert_eq!(
-        logged[0],
-        (
-            Level::Debug,
-            "Plan compression threshold: 4, algorithm: ZSTD".into()
+        let compressing = Fixture::start(Some(("4", "ZSTD"))).await;
+        let recording = Recording::start(Level::Debug);
+        let of_query = |query: &str| Relation {
+            rel_type: Some(spark_connect_proto::relation::RelType::Sql(
+                spark_connect_proto::Sql {
+                    query: query.into(),
+                    ..Default::default()
+                },
+            )),
+            ..Default::default()
+        };
+        // The sizes of the encoding of a relation and of its frame of zstd, of the level of
+        // python-zstandard's `compress`.
+        let sizes = |relation: &Relation| {
+            let encoded = relation.encode_to_vec();
+            let compressed =
+                zstd::bulk::compress(&encoded, zstd::DEFAULT_COMPRESSION_LEVEL).unwrap();
+            (encoded.len(), compressed.len())
+        };
+        let (original, compressed) = sizes(&of_query(&"select 1".repeat(64)));
+        let large = ExecutePlanRequest {
+            plan: Some(Plan {
+                op_type: Some(plan::OpType::Root(of_query(&"select 1".repeat(64)))),
+            }),
+            ..relation_request()
+        };
+        compressing.script(vec![], End::Complete);
+        let mut stream = bounded(
+            compressing
+                .client
+                .execute_plan_reattachable_logged(large, ExecutionLog::ToTable),
         )
-    );
-    let ratio = 1.0 - compressed as f64 / original as f64;
-    assert!(
-        logged[1].1.starts_with(&format!(
-            "Plan compression: original_size={original}, compressed_size={compressed}, \
-             saving_ratio={ratio:.2}, duration_s="
-        )),
-        "{logged:?}"
-    );
-    assert_eq!(
-        logged[2].1,
-        "Executing plan <spark.connect.Plan, truncated>"
-    );
-    // A plan that compression does not make smaller is sent as it is.
-    let (original, compressed) = sizes(&of_query("select 1"));
-    assert!(compressed >= original);
-    let small = ExecutePlanRequest {
-        operation_id: Some("00000000-0000-4000-8000-000000000003".into()),
-        plan: Some(Plan {
-            op_type: Some(plan::OpType::Root(of_query("select 1"))),
-        }),
-        ..relation_request()
-    };
-    compressing.script(vec![], End::Complete);
-    let before = recording.texts().len();
-    let mut stream = bounded(
-        compressing
-            .client
-            .execute_plan_reattachable_logged(small, ExecutionLog::ToTable),
-    )
-    .await
-    .unwrap();
-    drain(&mut stream).await;
-    let logged = &recording.texts()[before..];
-    let ratio = 1.0 - compressed as f64 / original as f64;
-    assert!(
-        logged[0].1.starts_with(&format!(
-            "Plan compression: original_size={original}, compressed_size={compressed}, \
-             saving_ratio={ratio:.2}, duration_s="
-        )),
-        "{logged:?}"
-    );
-    assert_eq!(
-        logged[1].1,
-        "Plan compression not effective. Using original plan."
-    );
+        .await
+        .unwrap();
+        drain(&mut stream).await;
+        let logged = recording.texts();
+        assert_eq!(
+            logged[0],
+            (
+                Level::Debug,
+                "Plan compression threshold: 4, algorithm: ZSTD".into()
+            )
+        );
+        let ratio = 1.0 - compressed as f64 / original as f64;
+        assert!(
+            logged[1].1.starts_with(&format!(
+                "Plan compression: original_size={original}, compressed_size={compressed}, \
+                 saving_ratio={ratio:.2}, duration_s="
+            )),
+            "{logged:?}"
+        );
+        assert_eq!(
+            logged[2].1,
+            "Executing plan <spark.connect.Plan, truncated>"
+        );
+        // A plan that compression does not make smaller is sent as it is.
+        let (original, compressed) = sizes(&of_query("select 1"));
+        assert!(compressed >= original);
+        let small = ExecutePlanRequest {
+            operation_id: Some("00000000-0000-4000-8000-000000000003".into()),
+            plan: Some(Plan {
+                op_type: Some(plan::OpType::Root(of_query("select 1"))),
+            }),
+            ..relation_request()
+        };
+        compressing.script(vec![], End::Complete);
+        let before = recording.texts().len();
+        let mut stream = bounded(
+            compressing
+                .client
+                .execute_plan_reattachable_logged(small, ExecutionLog::ToTable),
+        )
+        .await
+        .unwrap();
+        drain(&mut stream).await;
+        let logged = &recording.texts()[before..];
+        let ratio = 1.0 - compressed as f64 / original as f64;
+        assert!(
+            logged[0].1.starts_with(&format!(
+                "Plan compression: original_size={original}, compressed_size={compressed}, \
+                 saving_ratio={ratio:.2}, duration_s="
+            )),
+            "{logged:?}"
+        );
+        assert_eq!(
+            logged[1].1,
+            "Plan compression not effective. Using original plan."
+        );
+    });
 }
 
 #[tokio::test]
