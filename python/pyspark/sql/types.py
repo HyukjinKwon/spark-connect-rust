@@ -871,12 +871,24 @@ def _struct_to_internal(dataType, obj):
 def _from_internal(dataType, obj):
     """The Python value of the internal SQL value ``obj``, as the ``fromInternal`` of the
     PySpark type of ``dataType``: the inverse of ``_to_internal``, of which a struct is a
-    Row."""
-    import datetime
-
-    from pyspark.errors import PySparkNotImplementedError
-
-    if isinstance(dataType, StructField):
+    Row. A struct is the first type checked: each row that a Python worker pickles for an RDD
+    of a DataFrame is converted by it (``_create_row_inbound_converter``)."""
+    if isinstance(dataType, StructType):
+        if obj is None:
+            return
+        if isinstance(obj, Row):
+            # it's already converted by pickler
+            return obj
+        if dataType._needSerializeAnyField:
+            # Only calling fromInternal function for fields that need conversion
+            values = [
+                f.fromInternal(v) if c else v
+                for f, v, c in zip(dataType.fields, obj, dataType._needConversion)
+            ]
+        else:
+            values = obj
+        return _create_row(dataType.names, values)
+    elif isinstance(dataType, StructField):
         return dataType.dataType.fromInternal(obj)
     elif isinstance(dataType, DateType):
         if obj is not None:
@@ -904,6 +916,8 @@ def _from_internal(dataType, obj):
         if obj is not None:
             return datetime.timedelta(microseconds=obj)
     elif isinstance(dataType, (YearMonthIntervalType, CalendarIntervalType)):
+        from pyspark.errors import PySparkNotImplementedError
+
         # Of the name of PySpark's class, also for a Python subclass of it.
         name = (
             "YearMonthIntervalType"
@@ -934,21 +948,6 @@ def _from_internal(dataType, obj):
             (dataType.keyType.fromInternal(k), dataType.valueType.fromInternal(v))
             for k, v in obj.items()
         )
-    elif isinstance(dataType, StructType):
-        if obj is None:
-            return
-        if isinstance(obj, Row):
-            # it's already converted by pickler
-            return obj
-        if dataType._needSerializeAnyField:
-            # Only calling fromInternal function for fields that need conversion
-            values = [
-                f.fromInternal(v) if c else v
-                for f, v, c in zip(dataType.fields, obj, dataType._needConversion)
-            ]
-        else:
-            values = obj
-        return _create_row(dataType.names, values)
     else:
         return obj
 

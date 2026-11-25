@@ -3293,15 +3293,19 @@ fn drop_json_value(value: serde_json::Value) {
 }
 
 /// The `toInternal` or `fromInternal` (the `_to_internal` or `_from_internal` of the shim
-/// `pyspark.sql.types`) of `data_type`, which convert values as those of PySpark's types do.
+/// `pyspark.sql.types`) of `data_type`, which convert values as those of PySpark's types do. The
+/// module is imported once, as it is called for each value, such as each row that the Python
+/// workers pickle for the RDD of a DataFrame; its function is read at each call, as PySpark's.
 fn shim_conversion<'py>(
     data_type: &Bound<'py, PyAny>,
     conversion: &str,
     obj: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    data_type
-        .py()
-        .import("pyspark.sql.types")?
+    static TYPES: pyo3::sync::PyOnceLock<Py<PyModule>> = pyo3::sync::PyOnceLock::new();
+    let py = data_type.py();
+    TYPES
+        .get_or_try_init(py, || py.import("pyspark.sql.types").map(Bound::unbind))?
+        .bind(py)
         .getattr(conversion)?
         .call1((data_type, obj))
 }
