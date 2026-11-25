@@ -3940,7 +3940,7 @@ impl PySparkSession {
         schema: Option<&Bound<'_, PyAny>>,
         samplingRatio: Option<&Bound<'_, PyAny>>,
         verifySchema: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<crate::dataframe::NewDataFrame> {
+    ) -> PyResult<Py<PyAny>> {
         if data.is_none() {
             return Err(pyo3::exceptions::PyAssertionError::new_err(()));
         }
@@ -3952,13 +3952,22 @@ impl PySparkSession {
                 &[("arg_name", "data"), ("arg_type", "DataFrame")],
             ));
         }
-        // As PySpark Connect, which ignores both, and warns of each of the line of its
-        // `warnings.warn` in `pyspark.sql.connect.session`.
+        // A Spark Connect RDD of the RDD API (pyspark.core.connect), of which PySpark's
+        // createDataFrame of the connect-rdd branch of HyukjinKwon/spark creates the DataFrame as
+        // Spark Classic's does of an RDD, of `samplingRatio` and `verifySchema` too (see
+        // `_is_connect_rdd` and `_create_dataframe_from_connect_rdd` of the session's module).
+        let is_rdd = py
+            .import(pyo3::intern!(py, "pyspark.sql.connect.session"))?
+            .getattr(pyo3::intern!(py, "_is_connect_rdd"))?
+            .call1((data,))?
+            .is_truthy()?;
+        // As PySpark Connect, which ignores both of other data, and warns of each of the line of
+        // its `warnings.warn` in `pyspark.sql.connect.session`.
         for (name, line, value) in [
             ("samplingRatio", 484, samplingRatio),
             ("verifySchema", 487, verifySchema),
         ] {
-            if value.is_some_and(|v| !v.is_none()) {
+            if !is_rdd && value.is_some_and(|v| !v.is_none()) {
                 crate::errors::warn_as_pyspark(
                     py,
                     "pyspark.sql.connect.session",
@@ -3978,159 +3987,327 @@ impl PySparkSession {
         // (`pyspark_checked_schema`): of a DDL string so parsed, the parsed type is the schema.
         let parsed = pyspark_checked_schema(py, &this, schema)?;
         let schema = parsed.as_ref().or(schema);
-
-        // Data of no rows, of any kind that PySpark takes the length of, under a struct whose
-        // fields hold an element that is not a `StructField`: as PySpark, which sends the
-        // `json()` of the schema object, of the `AttributeError` of such an element of no
-        // `jsonValue` (see `types::foreign_schema_json`), after it checks the dimensions of an
-        // array.
-        if let Some(schema) = schema.filter(|_| data.len().is_ok_and(|n| n == 0)) {
+        if is_rdd {
+            // PySpark's `_cols`, of a list or a tuple of names, each re-encoded as UTF-8 unless it
+            // is a str, else its `_schema`, the schema as checked and parsed above, and its
+            // `verifySchema`, true when it is None.
+            let schema = match schema {
+                Some(names)
+                    if names.is_instance_of::<pyo3::types::PyList>()
+                        || names.is_instance_of::<pyo3::types::PyTuple>() =>
+                {
+                    let cols = pyo3::types::PyList::empty(py);
+                    for name in names.try_iter()? {
+                        let name = name?;
+                        if name.is_instance_of::<pyo3::types::PyString>() {
+                            cols.append(name)?;
+                        } else {
+                            cols.append(name.call_method1("encode", ("utf-8",))?)?;
+                        }
+                    }
+                    cols.into_any()
+                }
+                Some(schema) => schema.clone(),
+                None => py.None().into_bound(py),
+            };
+            let verify = match verifySchema {
+                Some(verify) if !verify.is_none() => verify.clone(),
+                _ => pyo3::types::PyBool::new(py, true).to_owned().into_any(),
+            };
+            return Ok(slf
+                .call_method1(
+                    pyo3::intern!(py, "_create_dataframe_from_connect_rdd"),
+                    (data, schema, samplingRatio, verify),
+                )?
+                .unbind());
+        }
+        // The local data, which the core converts and sends.
+        let local = (|| -> PyResult<crate::dataframe::NewDataFrame> {
+            // Data of no rows, of any kind that PySpark takes the length of, under a struct whose
+            // fields hold an element that is not a `StructField`: as PySpark, which sends the
+            // `json()` of the schema object, of the `AttributeError` of such an element of no
+            // `jsonValue` (see `types::foreign_schema_json`), after it checks the dimensions of an
+            // array.
+            if let Some(schema) = schema.filter(|_| data.len().is_ok_and(|n| n == 0)) {
+                if !is_loaded_instance(py, data, "numpy", "ndarray")?
+                    || matches!(data.getattr("ndim")?.extract::<i64>()?, 1 | 2)
+                {
+                    if let Some(json) = crate::types::foreign_schema_json(schema)? {
+                        return schema_text_dataframe(&this.get()?.session, json);
+                    }
+                }
+            }
+            // A caller holding a Table, or a pandas DataFrame, has already imported its module.
+            if is_loaded_instance(py, data, "pyarrow", "Table")? {
+                return crate::pyarrow_import::create_dataframe(
+                    py,
+                    &this.get()?.session,
+                    data,
+                    schema,
+                    None,
+                    false,
+                );
+            }
+            // Data of no rows: PySpark sends the `json()` of the schema object as it is, which the
+            // core's text does not keep of a nullable flag that is not a bool, of metadata, nor of a
+            // type of a Python subclass, and which the server may fail to parse, so the relation
+            // carries that text. PySpark checks the dimensions of an array first.
             if !is_loaded_instance(py, data, "numpy", "ndarray")?
-                || matches!(data.getattr("ndim")?.extract::<i64>()?, 1 | 2)
+                && data.len().is_ok_and(|n| n == 0)
             {
-                if let Some(json) = crate::types::foreign_schema_json(schema)? {
+                if let Some(json) = crate::types::raw_schema_json(schema)? {
                     return schema_text_dataframe(&this.get()?.session, json);
                 }
             }
-        }
-        // A caller holding a Table, or a pandas DataFrame, has already imported its module.
-        if is_loaded_instance(py, data, "pyarrow", "Table")? {
-            return crate::pyarrow_import::create_dataframe(
-                py,
-                &this.get()?.session,
-                data,
-                schema,
-                None,
-                false,
-            );
-        }
-        // Data of no rows: PySpark sends the `json()` of the schema object as it is, which the
-        // core's text does not keep of a nullable flag that is not a bool, of metadata, nor of a
-        // type of a Python subclass, and which the server may fail to parse, so the relation
-        // carries that text. PySpark checks the dimensions of an array first.
-        if !is_loaded_instance(py, data, "numpy", "ndarray")? && data.len().is_ok_and(|n| n == 0) {
-            if let Some(json) = crate::types::raw_schema_json(schema)? {
-                return schema_text_dataframe(&this.get()?.session, json);
-            }
-        }
-        // The names that PySpark applies with `toDF` to a pandas DataFrame, of which a str that
-        // UTF-8 cannot encode fails its requests (`data_name`).
-        let pandas = is_loaded_instance(py, data, "pandas", "DataFrame")?;
-        let mut names = crate::plan_args::PlanArgs::new();
-        let spec = match schema_spec(py, &this, schema, pandas.then_some(&mut names)) {
-            Ok(spec) => spec,
-            // A struct of a type that does not lower now, such as one of a `UserDefinedType` whose
-            // `module()` or `sqlType()` is not implemented, or whose fields hold an element that is
-            // not a `StructField`, which PySpark writes the `json()` of after it converts the data
-            // (`create_of_unlowered_schema`).
-            Err(error) => {
-                return match schema.filter(|schema| {
-                    schema.is_instance_of::<crate::types::PyStructType>()
-                        && error.is_instance_of::<pyo3::exceptions::PyException>(py)
-                }) {
-                    Some(schema) => this
-                        .get()?
-                        .create_of_unlowered_schema(py, data, schema, pandas, error),
-                    None => Err(error),
-                };
-            }
-        };
-        if is_loaded_instance(py, data, "numpy", "ndarray")? {
-            return this.get()?.create_from_ndarray(py, data, spec, schema);
-        }
-        // Data of no rows and of no type, which PySpark refuses before it reads any setting of its
-        // client, as `create_from_local` and `create_from_pandas` refuse it.
-        if matches!(spec, Spec::None | Spec::Names(_)) && data.len().is_ok_and(|n| n == 0) {
-            return Err(crate::column::raise_pyspark(
-                py,
-                "PySparkValueError",
-                "CANNOT_INFER_EMPTY_SCHEMA",
-                &[],
-            ));
-        }
-        // A type of its class only, such as `AtomicType()`, as the type of the single column: as
-        // PySpark, data of no rows is a relation of the `json()` of the type, which the server
-        // cannot parse, and the rows of other data have no Arrow type of it.
-        if let (Some(_), Some(json)) = (schema, class_type_json(&spec)) {
-            if data.len().is_ok_and(|n| n == 0) {
-                return schema_text_dataframe(&this.get()?.session, json.to_string());
-            }
-        }
-        if pandas {
-            // As PySpark's createDataFrame, which reads every setting of its conversions in one
-            // request before it converts a pandas DataFrame that is not empty.
-            let options = if data.len()? > 0 {
-                let session: &SparkSession = &this.get()?.session;
-                Some(crate::interrupt::interruptible_without_parts(
-                    py,
-                    session,
-                    || session.arrow_input_options(),
-                )?)
-            } else {
-                None
+            // The names that PySpark applies with `toDF` to a pandas DataFrame, of which a str that
+            // UTF-8 cannot encode fails its requests (`data_name`).
+            let pandas = is_loaded_instance(py, data, "pandas", "DataFrame")?;
+            let mut names = crate::plan_args::PlanArgs::new();
+            let spec = match schema_spec(py, &this, schema, pandas.then_some(&mut names)) {
+                Ok(spec) => spec,
+                // A struct of a type that does not lower now, such as one of a `UserDefinedType` whose
+                // `module()` or `sqlType()` is not implemented, or whose fields hold an element that is
+                // not a `StructField`, which PySpark writes the `json()` of after it converts the data
+                // (`create_of_unlowered_schema`).
+                Err(error) => {
+                    return match schema.filter(|schema| {
+                        schema.is_instance_of::<crate::types::PyStructType>()
+                            && error.is_instance_of::<pyo3::exceptions::PyException>(py)
+                    }) {
+                        Some(schema) => this
+                            .get()?
+                            .create_of_unlowered_schema(py, data, schema, pandas, error),
+                        None => Err(error),
+                    };
+                }
             };
-            // PySpark converts every pandas DataFrame with PyArrow, as the fast paths of plain
-            // frames below do: without it, the row path converts the frame.
-            if !py
-                .import("pyspark.sql._pandas_input")?
-                .getattr("pyarrow_available")?
-                .call0()?
-                .is_truthy()?
-            {
-                return this
-                    .get()?
-                    .create_from_pandas(py, data, spec, options, names, schema);
+            if is_loaded_instance(py, data, "numpy", "ndarray")? {
+                return this.get()?.create_from_ndarray(py, data, spec, schema);
             }
-            // Guarded integer columns share the existing Arrow importer. Schema validation above
-            // keeps its ordering, and the frames that the fast paths decline take PySpark's
-            // conversion below.
-            let table = py
-                .import("pyspark.sql._pandas_input")?
-                .getattr("prepare_int64_table")?
-                .call1((data, schema))?;
-            if !table.is_none() {
-                let frame = crate::pyarrow_import::create_dataframe(
+            // Data of no rows and of no type, which PySpark refuses before it reads any setting of its
+            // client, as `create_from_local` and `create_from_pandas` refuse it.
+            if matches!(spec, Spec::None | Spec::Names(_)) && data.len().is_ok_and(|n| n == 0) {
+                return Err(crate::column::raise_pyspark(
                     py,
-                    &this.get()?.session,
-                    &table,
-                    schema,
-                    options.as_ref(),
-                    true,
-                )?;
-                // pandas applies explicit field names with toDF even though the
-                // local relation already carries them. Empty input stays local.
-                return Ok(match &spec {
-                    Spec::Struct(fields) if !fields.is_empty() && table.len()? > 0 => {
-                        PyDataFrame::new(
-                            frame.dataframe().to_df(
-                                pandas_column_names(schema, fields)?
-                                    .iter()
-                                    .map(String::as_str)
-                                    .collect::<Vec<_>>(),
-                            ),
-                        )
-                    }
-                    _ => frame,
-                });
+                    "PySparkValueError",
+                    "CANNOT_INFER_EMPTY_SCHEMA",
+                    &[],
+                ));
             }
-            let helper = py.import("pyspark.sql._pandas_input")?;
-            let columns = helper.getattr("timestamp_columns")?.call1((data, schema))?;
-            if !columns.is_none() {
-                // Only a naive column needs the session time zone; aware columns carry theirs.
-                let aware = helper
-                    .getattr("timestamp_columns_are_aware")?
-                    .call1((&columns,))?
-                    .is_truthy()?;
-                let timezone = if aware {
-                    None
+            // A type of its class only, such as `AtomicType()`, as the type of the single column: as
+            // PySpark, data of no rows is a relation of the `json()` of the type, which the server
+            // cannot parse, and the rows of other data have no Arrow type of it.
+            if let (Some(_), Some(json)) = (schema, class_type_json(&spec)) {
+                if data.len().is_ok_and(|n| n == 0) {
+                    return schema_text_dataframe(&this.get()?.session, json.to_string());
+                }
+            }
+            if pandas {
+                // As PySpark's createDataFrame, which reads every setting of its conversions in one
+                // request before it converts a pandas DataFrame that is not empty.
+                let options = if data.len()? > 0 {
+                    let session: &SparkSession = &this.get()?.session;
+                    Some(crate::interrupt::interruptible_without_parts(
+                        py,
+                        session,
+                        || session.arrow_input_options(),
+                    )?)
                 } else {
-                    options
-                        .as_ref()
-                        .and_then(|options| options.timezone().map(str::to_owned))
+                    None
                 };
-                let table = helper
-                    .getattr("prepare_timestamp_table")?
-                    .call1((columns, schema, timezone))?;
+                // PySpark converts every pandas DataFrame with PyArrow, as the fast paths of plain
+                // frames below do: without it, the row path converts the frame.
+                if !py
+                    .import("pyspark.sql._pandas_input")?
+                    .getattr("pyarrow_available")?
+                    .call0()?
+                    .is_truthy()?
+                {
+                    return this
+                        .get()?
+                        .create_from_pandas(py, data, spec, options, names, schema);
+                }
+                // Guarded integer columns share the existing Arrow importer. Schema validation above
+                // keeps its ordering, and the frames that the fast paths decline take PySpark's
+                // conversion below.
+                let table = py
+                    .import("pyspark.sql._pandas_input")?
+                    .getattr("prepare_int64_table")?
+                    .call1((data, schema))?;
+                if !table.is_none() {
+                    let frame = crate::pyarrow_import::create_dataframe(
+                        py,
+                        &this.get()?.session,
+                        &table,
+                        schema,
+                        options.as_ref(),
+                        true,
+                    )?;
+                    // pandas applies explicit field names with toDF even though the
+                    // local relation already carries them. Empty input stays local.
+                    return Ok(match &spec {
+                        Spec::Struct(fields) if !fields.is_empty() && table.len()? > 0 => {
+                            PyDataFrame::new(
+                                frame.dataframe().to_df(
+                                    pandas_column_names(schema, fields)?
+                                        .iter()
+                                        .map(String::as_str)
+                                        .collect::<Vec<_>>(),
+                                ),
+                            )
+                        }
+                        _ => frame,
+                    });
+                }
+                let helper = py.import("pyspark.sql._pandas_input")?;
+                let columns = helper.getattr("timestamp_columns")?.call1((data, schema))?;
+                if !columns.is_none() {
+                    // Only a naive column needs the session time zone; aware columns carry theirs.
+                    let aware = helper
+                        .getattr("timestamp_columns_are_aware")?
+                        .call1((&columns,))?
+                        .is_truthy()?;
+                    let timezone = if aware {
+                        None
+                    } else {
+                        options
+                            .as_ref()
+                            .and_then(|options| options.timezone().map(str::to_owned))
+                    };
+                    let table = helper
+                        .getattr("prepare_timestamp_table")?
+                        .call1((columns, schema, timezone))?;
+                    if !table.is_none() {
+                        let frame = crate::pyarrow_import::create_dataframe(
+                            py,
+                            &this.get()?.session,
+                            &table,
+                            schema,
+                            options.as_ref(),
+                            true,
+                        )?;
+                        return Ok(match &spec {
+                            Spec::Struct(fields) if !fields.is_empty() && table.len()? > 0 => {
+                                PyDataFrame::new(
+                                    frame.dataframe().to_df(
+                                        pandas_column_names(schema, fields)?
+                                            .iter()
+                                            .map(String::as_str)
+                                            .collect::<Vec<_>>(),
+                                    ),
+                                )
+                            }
+                            _ => frame,
+                        });
+                    }
+                }
+                let ipc = py
+                    .import("pyspark.sql._pandas_input")?
+                    .getattr("prepare_float64_input")?
+                    .call1((data, schema))?;
+                if !ipc.is_none() {
+                    let fields = match &spec {
+                        Spec::Struct(fields) => fields,
+                        _ => {
+                            return Err(pyo3::exceptions::PyValueError::new_err(
+                                "float64 input requires a struct schema",
+                            ));
+                        }
+                    };
+                    let schema_json = crate::types::pyspark_schema_json_text(schema)?;
+                    let options = options
+                        .clone()
+                        .map(|options| with_schema_json(options, schema_json));
+                    let names = pandas_column_names(schema, fields)?;
+                    let schema = DataType::Struct {
+                        fields: fields.clone(),
+                    };
+                    let ipc: Vec<u8> = ipc.extract()?;
+                    let session: &SparkSession = &this.get()?.session;
+                    let frame = crate::interrupt::interruptible_without_parts(py, session, || {
+                        match options.as_ref() {
+                            Some(options) => session
+                                .create_dataframe_from_inline_arrow_ipc_with_options(
+                                    ipc, schema, options,
+                                ),
+                            None => session.create_dataframe_from_inline_arrow_ipc(ipc, schema),
+                        }
+                        .map_err(Box::new)
+                    })?;
+                    // Match pandas row input: explicit nonempty field names travel
+                    // through toDF as well as the local relation's logical schema.
+                    return Ok(PyDataFrame::new(
+                        frame.to_df(names.iter().map(String::as_str).collect::<Vec<_>>()),
+                    ));
+                }
+                let ipc = py
+                    .import("pyspark.sql._pandas_input")?
+                    .getattr("prepare_string_input")?
+                    .call1((data, schema))?;
+                // Columns kept in pandas' Arrow string storage come as an Arrow table, which the
+                // importer sends, or uploads at the relation cache threshold.
+                if !ipc.is_none() && !ipc.is_instance_of::<pyo3::types::PyBytes>() {
+                    let frame = crate::pyarrow_import::create_dataframe(
+                        py,
+                        &this.get()?.session,
+                        &ipc,
+                        schema,
+                        options.as_ref(),
+                        true,
+                    )?;
+                    return Ok(match &spec {
+                        Spec::Struct(fields) if !fields.is_empty() && ipc.len()? > 0 => {
+                            PyDataFrame::new(
+                                frame.dataframe().to_df(
+                                    pandas_column_names(schema, fields)?
+                                        .iter()
+                                        .map(String::as_str)
+                                        .collect::<Vec<_>>(),
+                                ),
+                            )
+                        }
+                        _ => frame,
+                    });
+                }
+                if !ipc.is_none() {
+                    let fields = match &spec {
+                        Spec::Struct(fields) => fields,
+                        _ => {
+                            return Err(pyo3::exceptions::PyValueError::new_err(
+                                "string input requires a struct schema",
+                            ));
+                        }
+                    };
+                    let schema_json = crate::types::pyspark_schema_json_text(schema)?;
+                    let options = options
+                        .clone()
+                        .map(|options| with_schema_json(options, schema_json));
+                    let names = pandas_column_names(schema, fields)?;
+                    let schema = DataType::Struct {
+                        fields: fields.clone(),
+                    };
+                    let ipc: Vec<u8> = ipc.extract()?;
+                    let session: &SparkSession = &this.get()?.session;
+                    let frame = crate::interrupt::interruptible_without_parts(py, session, || {
+                        match options.as_ref() {
+                            Some(options) => session
+                                .create_dataframe_from_inline_arrow_ipc_with_options(
+                                    ipc, schema, options,
+                                ),
+                            None => session.create_dataframe_from_inline_arrow_ipc(ipc, schema),
+                        }
+                        .map_err(Box::new)
+                    })?;
+                    // Match pandas row input: explicit nonempty field names travel
+                    // through toDF as well as the local relation's logical schema.
+                    return Ok(PyDataFrame::new(
+                        frame.to_df(names.iter().map(String::as_str).collect::<Vec<_>>()),
+                    ));
+                }
+                let table = py
+                    .import("pyspark.sql._pandas_input")?
+                    .getattr("prepare_date_table")?
+                    .call1((data, schema))?;
                 if !table.is_none() {
                     let frame = crate::pyarrow_import::create_dataframe(
                         py,
@@ -4154,238 +4331,113 @@ impl PySparkSession {
                         _ => frame,
                     });
                 }
-            }
-            let ipc = py
-                .import("pyspark.sql._pandas_input")?
-                .getattr("prepare_float64_input")?
-                .call1((data, schema))?;
-            if !ipc.is_none() {
-                let fields = match &spec {
-                    Spec::Struct(fields) => fields,
-                    _ => {
-                        return Err(pyo3::exceptions::PyValueError::new_err(
-                            "float64 input requires a struct schema",
-                        ));
+                // As PySpark, every other frame, of any class, labels and arrays, converts with its
+                // conversion of each column to Arrow: of the struct of an explicit schema, or of the
+                // types that Arrow infers. The row path takes the rest (`create_from_pandas`).
+                if let (Spec::Struct(fields), Some(schema)) = (&spec, schema) {
+                    if let Some(frame) = this.get()?.create_from_pandas_arrow(
+                        py,
+                        data,
+                        schema,
+                        fields,
+                        options.as_ref(),
+                    )? {
+                        return Ok(frame);
                     }
-                };
-                let schema_json = crate::types::pyspark_schema_json_text(schema)?;
-                let options = options
-                    .clone()
-                    .map(|options| with_schema_json(options, schema_json));
-                let names = pandas_column_names(schema, fields)?;
-                let schema = DataType::Struct {
-                    fields: fields.clone(),
-                };
-                let ipc: Vec<u8> = ipc.extract()?;
-                let session: &SparkSession = &this.get()?.session;
-                let frame = crate::interrupt::interruptible_without_parts(py, session, || {
-                    match options.as_ref() {
-                        Some(options) => session
-                            .create_dataframe_from_inline_arrow_ipc_with_options(
-                                ipc, schema, options,
-                            ),
-                        None => session.create_dataframe_from_inline_arrow_ipc(ipc, schema),
-                    }
-                    .map_err(Box::new)
-                })?;
-                // Match pandas row input: explicit nonempty field names travel
-                // through toDF as well as the local relation's logical schema.
-                return Ok(PyDataFrame::new(
-                    frame.to_df(names.iter().map(String::as_str).collect::<Vec<_>>()),
-                ));
-            }
-            let ipc = py
-                .import("pyspark.sql._pandas_input")?
-                .getattr("prepare_string_input")?
-                .call1((data, schema))?;
-            // Columns kept in pandas' Arrow string storage come as an Arrow table, which the
-            // importer sends, or uploads at the relation cache threshold.
-            if !ipc.is_none() && !ipc.is_instance_of::<pyo3::types::PyBytes>() {
-                let frame = crate::pyarrow_import::create_dataframe(
-                    py,
-                    &this.get()?.session,
-                    &ipc,
-                    schema,
-                    options.as_ref(),
-                    true,
-                )?;
-                return Ok(match &spec {
-                    Spec::Struct(fields) if !fields.is_empty() && ipc.len()? > 0 => {
-                        PyDataFrame::new(
-                            frame.dataframe().to_df(
-                                pandas_column_names(schema, fields)?
-                                    .iter()
-                                    .map(String::as_str)
-                                    .collect::<Vec<_>>(),
-                            ),
-                        )
-                    }
-                    _ => frame,
-                });
-            }
-            if !ipc.is_none() {
-                let fields = match &spec {
-                    Spec::Struct(fields) => fields,
-                    _ => {
-                        return Err(pyo3::exceptions::PyValueError::new_err(
-                            "string input requires a struct schema",
-                        ));
-                    }
-                };
-                let schema_json = crate::types::pyspark_schema_json_text(schema)?;
-                let options = options
-                    .clone()
-                    .map(|options| with_schema_json(options, schema_json));
-                let names = pandas_column_names(schema, fields)?;
-                let schema = DataType::Struct {
-                    fields: fields.clone(),
-                };
-                let ipc: Vec<u8> = ipc.extract()?;
-                let session: &SparkSession = &this.get()?.session;
-                let frame = crate::interrupt::interruptible_without_parts(py, session, || {
-                    match options.as_ref() {
-                        Some(options) => session
-                            .create_dataframe_from_inline_arrow_ipc_with_options(
-                                ipc, schema, options,
-                            ),
-                        None => session.create_dataframe_from_inline_arrow_ipc(ipc, schema),
-                    }
-                    .map_err(Box::new)
-                })?;
-                // Match pandas row input: explicit nonempty field names travel
-                // through toDF as well as the local relation's logical schema.
-                return Ok(PyDataFrame::new(
-                    frame.to_df(names.iter().map(String::as_str).collect::<Vec<_>>()),
-                ));
-            }
-            let table = py
-                .import("pyspark.sql._pandas_input")?
-                .getattr("prepare_date_table")?
-                .call1((data, schema))?;
-            if !table.is_none() {
-                let frame = crate::pyarrow_import::create_dataframe(
-                    py,
-                    &this.get()?.session,
-                    &table,
-                    schema,
-                    options.as_ref(),
-                    true,
-                )?;
-                return Ok(match &spec {
-                    Spec::Struct(fields) if !fields.is_empty() && table.len()? > 0 => {
-                        PyDataFrame::new(
-                            frame.dataframe().to_df(
-                                pandas_column_names(schema, fields)?
-                                    .iter()
-                                    .map(String::as_str)
-                                    .collect::<Vec<_>>(),
-                            ),
-                        )
-                    }
-                    _ => frame,
-                });
-            }
-            // As PySpark, every other frame, of any class, labels and arrays, converts with its
-            // conversion of each column to Arrow: of the struct of an explicit schema, or of the
-            // types that Arrow infers. The row path takes the rest (`create_from_pandas`).
-            if let (Spec::Struct(fields), Some(schema)) = (&spec, schema) {
-                if let Some(frame) = this.get()?.create_from_pandas_arrow(
+                }
+                if let Some(frame) = this.get()?.create_from_pandas_inferred(
                     py,
                     data,
-                    schema,
-                    fields,
+                    &spec,
                     options.as_ref(),
+                    &mut names,
                 )? {
                     return Ok(frame);
                 }
-            }
-            if let Some(frame) = this.get()?.create_from_pandas_inferred(
-                py,
-                data,
-                &spec,
-                options.as_ref(),
-                &mut names,
-            )? {
-                return Ok(frame);
-            }
-            return this
-                .get()?
-                .create_from_pandas(py, data, spec, options, names, schema);
-        }
-        // As PySpark's createDataFrame, which reads every setting of its conversions in one
-        // request before it converts local data that is not empty, also data of no length,
-        // before it iterates it.
-        let options = if data.len().is_ok_and(|n| n == 0) {
-            None
-        } else {
-            let session: &SparkSession = &this.get()?.session;
-            Some(crate::interrupt::interruptible_without_parts(
-                py,
-                session,
-                || session.arrow_input_options(),
-            )?)
-        };
-        // As PySpark's createDataFrame of local data under a struct that holds a type of a Python
-        // subclass that overrides what its conversion reads, or of a native class patched over
-        // one: PySpark's conversion of the rows, and the `json()` of the struct, as the relation's
-        // schema (`create_from_local_of_pyspark`).
-        if let (Some(schema), Some(options)) = (schema, options.as_ref()) {
-            if converts_local_data_of_pyspark(py, schema)? {
                 return this
                     .get()?
-                    .create_from_local_of_pyspark(py, data, schema, options);
+                    .create_from_pandas(py, data, spec, options, names, schema);
             }
-        }
-        // Preserve schema parsing, ignored-argument warnings, and pandas/Arrow routing.
-        // Only a native StructType opts into this explicit integer optimization;
-        // DDL, inferred schemas and unsupported values keep schema-driven conversion.
-        if let Some(struct_type) =
-            schema.filter(|s| s.extract::<PyRef<crate::types::PyStructType>>().is_ok())
-        {
-            if let Spec::Struct(fields) = &spec {
-                if let Ok(data) = data.cast::<PyList>() {
-                    // Not of a `fields` list changed in place, whose rows are taken apart by the
-                    // names before the change (`infer::cached_names`).
-                    if let Some(columns) = exact_long_tuple_columns(data, fields)?.filter(|_| {
-                        matches!(crate::infer::cached_names(struct_type, fields), Ok(None))
-                    }) {
-                        let schema_json = crate::types::schema_json_text(schema)?;
-                        let options = options
-                            .clone()
-                            .map(|options| with_schema_json(options, schema_json));
-                        let schema = DataType::Struct {
-                            fields: fields.clone(),
-                        };
-                        let session: &SparkSession = &this.get()?.session;
-                        let df =
-                            crate::interrupt::interruptible_without_parts(py, session, || {
-                                match options.as_ref() {
-                                    Some(options) => session
-                                        .create_dataframe_from_columns_with_options(
-                                            columns, schema, options,
-                                        ),
-                                    None => session.create_dataframe_from_columns(columns, schema),
-                                }
-                                .map_err(Box::new)
-                            })?;
-                        return Ok(PyDataFrame::new(df));
+            // As PySpark's createDataFrame, which reads every setting of its conversions in one
+            // request before it converts local data that is not empty, also data of no length,
+            // before it iterates it.
+            let options = if data.len().is_ok_and(|n| n == 0) {
+                None
+            } else {
+                let session: &SparkSession = &this.get()?.session;
+                Some(crate::interrupt::interruptible_without_parts(
+                    py,
+                    session,
+                    || session.arrow_input_options(),
+                )?)
+            };
+            // As PySpark's createDataFrame of local data under a struct that holds a type of a Python
+            // subclass that overrides what its conversion reads, or of a native class patched over
+            // one: PySpark's conversion of the rows, and the `json()` of the struct, as the relation's
+            // schema (`create_from_local_of_pyspark`).
+            if let (Some(schema), Some(options)) = (schema, options.as_ref()) {
+                if converts_local_data_of_pyspark(py, schema)? {
+                    return this
+                        .get()?
+                        .create_from_local_of_pyspark(py, data, schema, options);
+                }
+            }
+            // Preserve schema parsing, ignored-argument warnings, and pandas/Arrow routing.
+            // Only a native StructType opts into this explicit integer optimization;
+            // DDL, inferred schemas and unsupported values keep schema-driven conversion.
+            if let Some(struct_type) =
+                schema.filter(|s| s.extract::<PyRef<crate::types::PyStructType>>().is_ok())
+            {
+                if let Spec::Struct(fields) = &spec {
+                    if let Ok(data) = data.cast::<PyList>() {
+                        // Not of a `fields` list changed in place, whose rows are taken apart by the
+                        // names before the change (`infer::cached_names`).
+                        if let Some(columns) =
+                            exact_long_tuple_columns(data, fields)?.filter(|_| {
+                                matches!(crate::infer::cached_names(struct_type, fields), Ok(None))
+                            })
+                        {
+                            let schema_json = crate::types::schema_json_text(schema)?;
+                            let options = options
+                                .clone()
+                                .map(|options| with_schema_json(options, schema_json));
+                            let schema = DataType::Struct {
+                                fields: fields.clone(),
+                            };
+                            let session: &SparkSession = &this.get()?.session;
+                            let df =
+                                crate::interrupt::interruptible_without_parts(py, session, || {
+                                    match options.as_ref() {
+                                        Some(options) => session
+                                            .create_dataframe_from_columns_with_options(
+                                                columns, schema, options,
+                                            ),
+                                        None => {
+                                            session.create_dataframe_from_columns(columns, schema)
+                                        }
+                                    }
+                                    .map_err(Box::new)
+                                })?;
+                            return Ok(PyDataFrame::new(df));
+                        }
                     }
                 }
             }
-        }
-        // The checks of the schema that PySpark's conversion of non-empty local rows makes, also
-        // of rows of no length, such as an iterator's, which the conversion takes apart first.
-        let struct_schema = schema.filter(|s| s.is_instance_of::<crate::types::PyStructType>());
-        let checks = match struct_schema {
-            Some(schema) if !data.len().is_ok_and(|n| n == 0) => LocalChecks {
-                non_bool_nullable: crate::types::has_non_bool_converter_flag(py, schema)?,
-            },
-            _ => LocalChecks::default(),
-        };
-        // The type object of the schema, a struct or an atomic type, rather than a DDL string.
-        let type_schema = schema.filter(|s| s.is_instance_of::<crate::types::PyDataType>());
-        this.get()?
-            .create_from_local(py, data, spec, checks, options, type_schema)
+            // The checks of the schema that PySpark's conversion of non-empty local rows makes, also
+            // of rows of no length, such as an iterator's, which the conversion takes apart first.
+            let struct_schema = schema.filter(|s| s.is_instance_of::<crate::types::PyStructType>());
+            let checks = match struct_schema {
+                Some(schema) if !data.len().is_ok_and(|n| n == 0) => LocalChecks {
+                    non_bool_nullable: crate::types::has_non_bool_converter_flag(py, schema)?,
+                },
+                _ => LocalChecks::default(),
+            };
+            // The type object of the schema, a struct or an atomic type, rather than a DDL string.
+            let type_schema = schema.filter(|s| s.is_instance_of::<crate::types::PyDataType>());
+            this.get()?
+                .create_from_local(py, data, spec, checks, options, type_schema)
+        })()?;
+        Ok(local.into_pyobject(py)?.into_any().unbind())
     }
 
     // Runtime configuration (`spark.conf`): a new one at each access, as PySpark's
@@ -4469,7 +4521,9 @@ impl PySparkSession {
         name: &Bound<'_, pyo3::types::PyString>,
     ) -> PyResult<Py<PyAny>> {
         let py = slf.py();
-        for jvm_name in ["_jsc", "_jconf", "_jvm", "_jsparkSession", "sparkContext"] {
+        // `sparkContext` is the session-scoped SparkContext of the RDD API (see the session's
+        // module), a property of the class, which Python finds before this method.
+        for jvm_name in ["_jsc", "_jconf", "_jvm", "_jsparkSession"] {
             if name.as_any().eq(jvm_name)? {
                 return Err(crate::column::raise_pyspark(
                     py,

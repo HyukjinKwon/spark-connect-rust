@@ -4981,7 +4981,6 @@ class RDDRelation(google.protobuf.message.Message):
         COMMAND_FIELD_NUMBER: builtins.int
         PYTHON_VER_FIELD_NUMBER: builtins.int
         IS_BARRIER_FIELD_NUMBER: builtins.int
-        PROFILE_ID_FIELD_NUMBER: builtins.int
         PYTHON_HASH_SEED_FIELD_NUMBER: builtins.int
         OUTPUT_PAIRS_FIELD_NUMBER: builtins.int
         @property
@@ -4995,10 +4994,6 @@ class RDDRelation(google.protobuf.message.Message):
         """(Required) The version of Python of the client, as "major.minor"."""
         is_barrier: builtins.bool
         """(Optional) Whether the partitions are computed in a barrier stage."""
-        profile_id: builtins.int
-        """(Optional) The ID of the resource profile of the stage (see
-        `CreateResourceProfileCommand`).
-        """
         python_hash_seed: builtins.str
         """(Optional) The PYTHONHASHSEED of the Python workers, so that they hash strings as the
         client does: for instance, to find the partition of a key. The server's when not set.
@@ -5012,21 +5007,16 @@ class RDDRelation(google.protobuf.message.Message):
             command: builtins.bytes = ...,
             python_ver: builtins.str = ...,
             is_barrier: builtins.bool = ...,
-            profile_id: builtins.int | None = ...,
             python_hash_seed: builtins.str | None = ...,
             output_pairs: builtins.bool = ...,
         ) -> None: ...
         def HasField(
             self,
             field_name: typing_extensions.Literal[
-                "_profile_id",
-                b"_profile_id",
                 "_python_hash_seed",
                 b"_python_hash_seed",
                 "input",
                 b"input",
-                "profile_id",
-                b"profile_id",
                 "python_hash_seed",
                 b"python_hash_seed",
             ],
@@ -5034,8 +5024,6 @@ class RDDRelation(google.protobuf.message.Message):
         def ClearField(
             self,
             field_name: typing_extensions.Literal[
-                "_profile_id",
-                b"_profile_id",
                 "_python_hash_seed",
                 b"_python_hash_seed",
                 "command",
@@ -5046,19 +5034,12 @@ class RDDRelation(google.protobuf.message.Message):
                 b"is_barrier",
                 "output_pairs",
                 b"output_pairs",
-                "profile_id",
-                b"profile_id",
                 "python_hash_seed",
                 b"python_hash_seed",
                 "python_ver",
                 b"python_ver",
             ],
         ) -> None: ...
-        @typing.overload
-        def WhichOneof(
-            self, oneof_group: typing_extensions.Literal["_profile_id", b"_profile_id"]
-        ) -> typing_extensions.Literal["profile_id"] | None: ...
-        @typing.overload
         def WhichOneof(
             self, oneof_group: typing_extensions.Literal["_python_hash_seed", b"_python_hash_seed"]
         ) -> typing_extensions.Literal["python_hash_seed"] | None: ...
@@ -5346,6 +5327,34 @@ class RDDRelation(google.protobuf.message.Message):
             self, oneof_group: typing_extensions.Literal["_partitions", b"_partitions"]
         ) -> typing_extensions.Literal["partitions"] | None: ...
 
+    class WithResources(google.protobuf.message.Message):
+        """The rows of `input`, in a stage that runs with a resource profile, as the stage of an RDD
+        with the resource profile that `RDD.withResources` sets in Spark Classic.
+        """
+
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        INPUT_FIELD_NUMBER: builtins.int
+        PROFILE_ID_FIELD_NUMBER: builtins.int
+        @property
+        def input(self) -> global___Relation:
+            """(Required) The input RDD."""
+        profile_id: builtins.int
+        """(Required) The ID of the resource profile (see `CreateResourceProfileCommand`)."""
+        def __init__(
+            self,
+            *,
+            input: global___Relation | None = ...,
+            profile_id: builtins.int = ...,
+        ) -> None: ...
+        def HasField(
+            self, field_name: typing_extensions.Literal["input", b"input"]
+        ) -> builtins.bool: ...
+        def ClearField(
+            self,
+            field_name: typing_extensions.Literal["input", b"input", "profile_id", b"profile_id"],
+        ) -> None: ...
+
     MAP_PARTITIONS_FIELD_NUMBER: builtins.int
     SHUFFLE_FIELD_NUMBER: builtins.int
     VALUES_FIELD_NUMBER: builtins.int
@@ -5357,6 +5366,7 @@ class RDDRelation(google.protobuf.message.Message):
     FROM_DATA_FRAME_FIELD_NUMBER: builtins.int
     TO_DATA_FRAME_FIELD_NUMBER: builtins.int
     ELEMENTS_FIELD_NUMBER: builtins.int
+    WITH_RESOURCES_FIELD_NUMBER: builtins.int
     @property
     def map_partitions(self) -> global___RDDRelation.MapPartitions: ...
     @property
@@ -5379,6 +5389,8 @@ class RDDRelation(google.protobuf.message.Message):
     def to_data_frame(self) -> global___RDDRelation.ToDataFrame: ...
     @property
     def elements(self) -> global___RDDRelation.Elements: ...
+    @property
+    def with_resources(self) -> global___RDDRelation.WithResources: ...
     def __init__(
         self,
         *,
@@ -5393,6 +5405,7 @@ class RDDRelation(google.protobuf.message.Message):
         from_data_frame: global___RDDRelation.FromDataFrame | None = ...,
         to_data_frame: global___RDDRelation.ToDataFrame | None = ...,
         elements: global___RDDRelation.Elements | None = ...,
+        with_resources: global___RDDRelation.WithResources | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -5419,6 +5432,8 @@ class RDDRelation(google.protobuf.message.Message):
             b"union",
             "values",
             b"values",
+            "with_resources",
+            b"with_resources",
             "zip_partitions",
             b"zip_partitions",
         ],
@@ -5448,6 +5463,8 @@ class RDDRelation(google.protobuf.message.Message):
             b"union",
             "values",
             b"values",
+            "with_resources",
+            b"with_resources",
             "zip_partitions",
             b"zip_partitions",
         ],
@@ -5467,6 +5484,7 @@ class RDDRelation(google.protobuf.message.Message):
             "from_data_frame",
             "to_data_frame",
             "elements",
+            "with_resources",
         ]
         | None
     ): ...

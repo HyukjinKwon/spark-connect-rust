@@ -64,9 +64,9 @@ VENDORED_FILES=(
   "conf.py"
   "taskcontext.py"
 
-  # The serializers of pyspark, and its resource profiles, whose profile id the ResourceProfile
-  # of pyspark.sql.connect.resource.profile creates on the server through SparkSession.client.
-  "serializers.py"
+  # The resource profiles of pyspark, whose profile id the ResourceProfile of
+  # pyspark.sql.connect.resource.profile creates on the server through SparkSession.client. Its
+  # serializers are of the commit of the protos (see PROTO_VENDORED_FILES).
   "resource/__init__.py"
   "resource/information.py"
   "resource/profile.py"
@@ -357,6 +357,24 @@ PROTO_VENDORED_FILES=(
   "sql/connect/proto/pipelines_pb2.pyi"
   "sql/connect/proto/rdd_pb2.pyi"
   "sql/connect/proto/example_plugins_pb2.pyi"
+
+  # The RDD API of Spark Connect of that commit (pyspark.core.connect, of the RDDRelation and the
+  # RDDCommand of its protos): the facade of its RDDs (core/rdd.py), the client, and the
+  # pure-Python modules that it runs, with the serializers of pyspark, which pickle with
+  # cloudpickle-rust when it is installed. Its SparkContext is the session-scoped one of
+  # SparkSession.sparkContext; the classic core/context.py, of a JVM, is not vendored.
+  "core/__init__.py"
+  "core/rdd.py"
+  "core/connect/__init__.py"
+  "core/connect/_runtime.py"
+  "core/connect/context.py"
+  "core/connect/rdd.py"
+  "join.py"
+  "rddsampler.py"
+  "resultiterable.py"
+  "serializers.py"
+  "shuffle.py"
+  "statcounter.py"
 )
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -389,7 +407,11 @@ git init --quiet "${WORK}/spark-proto"
 (
   cd "${WORK}/spark-proto"
   git remote add origin "${PROTO_REPO}"
-  git sparse-checkout set python/pyspark/sql/connect/proto >/dev/null
+  proto_paths=()
+  for f in "${PROTO_VENDORED_FILES[@]}"; do
+    proto_paths+=("python/pyspark/$(dirname "${f}")")
+  done
+  git sparse-checkout set "${proto_paths[@]}" >/dev/null
   git fetch --quiet --depth 1 --filter=blob:none origin "${PROTO_SHA}"
   git checkout --quiet FETCH_HEAD
 )
@@ -448,7 +470,7 @@ done
 if [[ "${status}" -ne 0 ]]; then
   echo
   echo "Vendored files have drifted from Apache Spark ${SPARK_TAG} (or, for the proto type"
-  echo "stubs, from the commit of the protos, ${PROTO_SHA})."
+  echo "stubs and the RDD API, from the commit of the protos, ${PROTO_SHA})."
   echo "Re-vendor from upstream (git subtree pull) or revert the local edit."
 fi
 exit "${status}"

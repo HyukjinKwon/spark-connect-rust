@@ -3927,7 +3927,9 @@ impl PyDataFrame {
         // As PySpark Connect's: the attributes of the JVM of a classic DataFrame are not
         // supported, and a name is validated as a column only for a dunder name, which Python
         // may look up for an attribute, or with PYSPARK_VALIDATE_COLUMN_NAME_LEGACY.
-        if ["_jseq", "_jdf", "_jmap", "_jcols", "rdd"].contains(&text) {
+        // `rdd` is the RDD of the RDD API of Spark Connect (see the DataFrame's module), a
+        // property of the class, which Python finds before this method.
+        if ["_jseq", "_jdf", "_jmap", "_jcols"].contains(&text) {
             return Err(crate::column::raise_pyspark(
                 py,
                 "PySparkAttributeError",

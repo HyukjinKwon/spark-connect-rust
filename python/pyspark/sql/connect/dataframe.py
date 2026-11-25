@@ -42,6 +42,26 @@ __all__ = ["DataFrame", "DataFrameNaFunctions", "DataFrameStatFunctions"]
 _cloudpickle.register_pickle_by_value(_column_reduce)
 
 
+# The `rdd` of PySpark Connect's DataFrame of the RDD API of Spark Connect (pyspark.core.connect),
+# of the connect-rdd branch of HyukjinKwon/spark, a property of its class body, of no docstring as
+# PySpark Connect's (the classic DataFrame of a remote-only PySpark has no `rdd`).
+def rdd(self: DataFrame) -> Any:
+    # As in Spark Classic, the DataFrame keeps its RDD, so that the RDD of every access is
+    # the same RDD on the server, which shares its cache and shuffle outputs.
+    rdd = self.__dict__.get("_lazy_rdd")
+    if rdd is None:
+        from pyspark.core.connect.rdd import RDD as ConnectRDD
+
+        rdd = ConnectRDD._from_dataframe(self)
+        self._lazy_rdd = rdd
+    return rdd
+
+
+rdd.__qualname__ = "DataFrame.rdd"
+DataFrame.rdd = property(rdd)  # type: ignore[attr-defined,method-assign]
+del rdd
+
+
 def _local_rows(rows: Any) -> Iterator[Any]:
     """The generator that ``DataFrame.toLocalIterator`` returns, as PySpark's: the first row
     starts the execution of the rows, and a close, a throw, an error or the end of the generator

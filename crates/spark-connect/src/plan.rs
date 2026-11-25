@@ -1251,8 +1251,9 @@ macro_rules! relation_inputs_of {
 
 /// The inputs of the relation type of an `RDDRelation` of the RDD API of the Python client, for
 /// [`relation_inputs_of`]: the input of a relation of one input (a `MapPartitions`, `Shuffle`,
-/// `Values`, `Coalesce`, `FromDataFrame`, `ToDataFrame` or `Elements`), the inputs of a `Union`
-/// or a `ZipPartitions`, both sides of a `Cartesian`, and the local data of a `Parallelize`.
+/// `Values`, `Coalesce`, `FromDataFrame`, `ToDataFrame`, `Elements` or `WithResources`), the
+/// inputs of a `Union` or a `ZipPartitions`, both sides of a `Cartesian`, and the local data of a
+/// `Parallelize`.
 macro_rules! rdd_relation_inputs_of {
     ($relation_type:expr, $deref:ident, $iter:ident) => {{
         use proto::rdd_relation::RelationType as Rdd;
@@ -1268,6 +1269,7 @@ macro_rules! rdd_relation_inputs_of {
             Some(Rdd::FromDataFrame(r)) => vec![r.input.$deref()],
             Some(Rdd::ToDataFrame(r)) => vec![r.input.$deref()],
             Some(Rdd::Elements(r)) => vec![r.input.$deref()],
+            Some(Rdd::WithResources(r)) => vec![r.input.$deref()],
             None => Vec::new(),
         }
     }};
@@ -5876,6 +5878,12 @@ mod placeholder_tests {
                 Rdd::Elements(Box::new(rdd::Elements {
                     input: input(r),
                     partitions: Some(proto::Ints { values: vec![0, 2] }),
+                }))
+            }),
+            Box::new(|r| {
+                Rdd::WithResources(Box::new(rdd::WithResources {
+                    input: input(r),
+                    profile_id: 1,
                 }))
             }),
         ];

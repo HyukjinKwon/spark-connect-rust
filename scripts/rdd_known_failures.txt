@@ -1,0 +1,11 @@
+# The suites of the RDD API of Spark Connect, of the commit of the protos
+# (crates/spark-connect-proto/proto/SPARK_SHA.txt of SPARK_REPO.txt, python/pyspark/tests/connect),
+# that the drop-in does not run, each with its reason, for .github/workflows/spark-branch-rdd.yml
+# (scripts/run_official_tests.py --dropin --manifest). A line is a test file, relative to python/,
+# or a test of it, `<file>::<Class>::<test>`. The list is meant to only shrink.
+
+# Every test of it needs a JVM (`@unittest.skipIf(is_remote_only(), "Requires JVM access")`, of the
+# classic SparkFiles and JobArtifactSet), and the module of its mixin,
+# pyspark.sql.tests.connect.client.test_artifact, imports PySpark's artifact manager
+# (pyspark.sql.connect.client.artifact), which the Rust transport replaces.
+pyspark/tests/connect/test_parity_spark_context_artifacts.py

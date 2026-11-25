@@ -19,10 +19,14 @@
 # As in PySpark, ``pyspark.sql.SparkSession`` is the classic class (``pyspark.sql.session``, of
 # Apache Spark), whose builder makes a session of this class, which it is not a subclass of.
 import functools
-from typing import TYPE_CHECKING, Callable
+import sys
+from collections.abc import Sized
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 from pyspark._pyspark import SparkSession, _install_builder
+from pyspark.errors import AnalysisException as _AnalysisException
 from pyspark.errors import PySparkTypeError as _PySparkTypeError
+from pyspark.errors import PySparkValueError as _PySparkValueError
 
 # As PySpark Connect's module of the session, which imports the modules of the classes of the
 # objects of a session when it is imported: those of its DataFrames (and so those of their groups,
@@ -60,15 +64,24 @@ from pyspark.sql.session import SparkSession as _PySparkSession
 from pyspark.sql.session import classproperty as _classproperty
 from pyspark.sql.types import (  # noqa: F401
     AtomicType,
+    DataType,
     DayTimeIntervalType,
     MapType,
     StringType,
     StructType,
     TimestampType,
+    _create_converter,
+    _has_nulltype,
+    _infer_schema,
+    _make_type_verifier,
+    _merge_type,
 )
 
 if TYPE_CHECKING:
+    from pyspark.core.connect.context import SparkContext
     from pyspark.sql.connect.catalog import Catalog
+    from pyspark.sql.connect.plan import ChunkedCachedLocalRelation, LocalRelation
+    from pyspark.sql.dataframe import DataFrame as ParentDataFrame
 
 __all__ = ["SparkSession"]
 
@@ -104,6 +117,274 @@ for _function in (catalog, version):
     _cached.__set_name__(SparkSession, _function.__name__)
     setattr(SparkSession, _function.__name__, _cached)
 del catalog, version, _function, _cached
+
+
+# The members of PySpark Connect's session of the RDD API of Spark Connect (pyspark.core.connect),
+# of the connect-rdd branch of HyukjinKwon/spark, of its class body: the session-scoped
+# SparkContext of `sparkContext`, the DataFrame of an RDD of `createDataFrame` (whose native
+# method calls `_create_dataframe_from_connect_rdd` for an RDD), and the cache of the local data
+# of `SparkContext.parallelize` (`_cache_local_relation`).
+def _is_connect_rdd(obj: Any) -> bool:
+    # A Spark Connect RDD only exists once its module was imported, so do not import it here.
+    rdd_module = sys.modules.get("pyspark.core.connect.rdd")
+    return rdd_module is not None and isinstance(obj, rdd_module.RDD)
+
+
+def sparkContext(self: "SparkSession") -> "SparkContext":
+    """
+    Session-scoped Spark context entry for Connect RDD helpers.
+
+    This returns a :class:`~pyspark.core.connect.context.SparkContext` tied to this
+    Spark session. It does not expose a JVM-wide :class:`~pyspark.core.context.SparkContext`.
+
+    .. versionadded:: 5.0.0
+    """
+    from pyspark.core.connect.context import SparkContext
+
+    if getattr(self, "_connect_spark_context", None) is None:
+        self._connect_spark_context = SparkContext(self)
+    return self._connect_spark_context
+
+
+def _inferSchema(
+    self: "SparkSession",
+    rdd: Any,
+    samplingRatio: Optional[float] = None,
+    names: Optional[list[str]] = None,
+) -> StructType:
+    """
+    Infer the schema of an RDD of Row, dict, or tuple, as ``_inferSchema`` of Spark Classic.
+    """
+    first = rdd.first()
+    if isinstance(first, Sized) and len(first) == 0:
+        raise _PySparkValueError(
+            errorClass="CANNOT_INFER_EMPTY_SCHEMA",
+            messageParameters={},
+        )
+
+    configs = self._client.get_config_dict(
+        "spark.sql.timestampType",
+        "spark.sql.pyspark.inferNestedDictAsStruct.enabled",
+        "spark.sql.pyspark.legacy.inferArrayTypeFromFirstElement.enabled",
+        "spark.sql.pyspark.legacy.inferMapTypeFromFirstPair.enabled",
+    )
+    prefer_timestamp_ntz = configs["spark.sql.timestampType"] == "TIMESTAMP_NTZ"
+    infer_dict_as_struct = configs["spark.sql.pyspark.inferNestedDictAsStruct.enabled"] == "true"
+    infer_array_from_first_element = (
+        configs["spark.sql.pyspark.legacy.inferArrayTypeFromFirstElement.enabled"] == "true"
+    )
+    infer_map_from_first_pair = (
+        configs["spark.sql.pyspark.legacy.inferMapTypeFromFirstPair.enabled"] == "true"
+    )
+
+    if samplingRatio is None:
+        schema = _infer_schema(
+            first,
+            names=names,
+            infer_dict_as_struct=infer_dict_as_struct,
+            prefer_timestamp_ntz=prefer_timestamp_ntz,
+        )
+        if _has_nulltype(schema):
+            for row in rdd.take(100)[1:]:
+                schema = _merge_type(
+                    schema,
+                    _infer_schema(
+                        row,
+                        names=names,
+                        infer_dict_as_struct=infer_dict_as_struct,
+                        infer_array_from_first_element=infer_array_from_first_element,
+                        infer_map_from_first_pair=infer_map_from_first_pair,
+                        prefer_timestamp_ntz=prefer_timestamp_ntz,
+                    ),
+                )
+                if not _has_nulltype(schema):
+                    break
+            else:
+                raise _PySparkValueError(
+                    errorClass="CANNOT_DETERMINE_TYPE",
+                    messageParameters={},
+                )
+    else:
+        if samplingRatio < 0.99:
+            rdd = rdd.sample(False, float(samplingRatio))
+        schema = rdd.map(
+            lambda row: _infer_schema(
+                row,
+                names,
+                infer_dict_as_struct=infer_dict_as_struct,
+                infer_array_from_first_element=infer_array_from_first_element,
+                infer_map_from_first_pair=infer_map_from_first_pair,
+                prefer_timestamp_ntz=prefer_timestamp_ntz,
+            )
+        ).reduce(_merge_type)
+    return schema
+
+
+def _createFromRDD(
+    self: "SparkSession",
+    rdd: Any,
+    schema: Optional[Union[DataType, list[str]]],
+    samplingRatio: Optional[float],
+) -> tuple[Any, StructType]:
+    """
+    Create an RDD of the internal values of the rows of a DataFrame from an RDD, and the
+    schema of the DataFrame, as ``_createFromRDD`` of Spark Classic.
+    """
+    if schema is None or isinstance(schema, (list, tuple)):
+        struct = self._inferSchema(rdd, samplingRatio, names=schema)
+        converter = _create_converter(struct)
+        tupled_rdd = rdd.map(converter)
+        if isinstance(schema, (list, tuple)):
+            for i, name in enumerate(schema):
+                struct.fields[i].name = name
+                struct.names[i] = name
+    elif isinstance(schema, StructType):
+        struct = schema
+        tupled_rdd = rdd
+    else:
+        raise _PySparkTypeError(
+            errorClass="NOT_EXPECTED_TYPE",
+            messageParameters={
+                "arg_name": "schema",
+                "expected_type": "list, None or StructType",
+                "arg_type": type(schema).__name__,
+            },
+        )
+
+    # convert python objects to sql data
+    internal_rdd = tupled_rdd.map(struct.toInternal)
+    return internal_rdd, struct
+
+
+def _create_dataframe_from_connect_rdd(
+    self: "SparkSession",
+    data: Any,
+    schema: Optional[Union[DataType, list[str]]],
+    samplingRatio: Optional[float],
+    verifySchema: bool,
+) -> "ParentDataFrame":
+    """
+    Create a DataFrame from a Spark Connect RDD as ``_create_dataframe`` of Spark Classic does
+    from an RDD: the server applies the schema to the internal values that the RDD pickles.
+    """
+    if isinstance(schema, StructType):
+        verify_func = _make_type_verifier(schema) if verifySchema else lambda _: True
+
+        def prepare(obj: Any) -> Any:
+            verify_func(obj)
+            return obj
+
+    elif isinstance(schema, DataType):
+        dataType = schema
+        schema = StructType().add("value", schema)
+        verify_func = (
+            _make_type_verifier(dataType, name="field value") if verifySchema else lambda _: True
+        )
+
+        def prepare(obj: Any) -> Any:
+            verify_func(obj)
+            return (obj,)
+
+    else:
+
+        def prepare(obj: Any) -> Any:
+            return obj
+
+    rdd, struct = self._createFromRDD(data.map(prepare), schema, samplingRatio)
+    return rdd._to_dataframe(struct)
+
+
+def _cache_local_relation(
+    self: "SparkSession",
+    local_relation: "LocalRelation",
+    local_relation_size_limit: int,
+    max_chunk_size_rows: int,
+    max_chunk_size_bytes: int,
+    max_batch_of_chunks_size_bytes: int,
+) -> "ChunkedCachedLocalRelation":
+    """
+    Cache the local relation at the server side if it has not been cached yet.
+
+    This method serializes the input local relation into multiple data chunks and
+    a schema chunk (if the schema is available) and uploads these chunks as artifacts
+    to the server.
+
+    The method collects a batch of chunks of size up to max_batch_of_chunks_size_bytes and
+    uploads them together to the server.
+    Uploading each chunk separately would require an additional RPC call for each chunk.
+    Uploading all chunks together would require materializing all chunks in memory which
+    may cause high memory usage on the client.
+    Uploading batches of chunks is the middle-ground solution.
+
+    Should only be called on a LocalRelation with a non-empty _table.
+    """
+    from pyspark.sql.connect.plan import ChunkedCachedLocalRelation
+
+    assert local_relation._table is not None, "table cannot be None"
+    has_schema = local_relation._schema is not None
+
+    hashes = []
+    current_batch = []
+    current_batch_size = 0
+    total_size = 0
+    if has_schema:
+        schema_chunk = local_relation._serialize_schema()
+        current_batch.append(schema_chunk)
+        current_batch_size += len(schema_chunk)
+        total_size += len(schema_chunk)
+
+    data_chunks = local_relation._serialize_table_chunks(
+        max_chunk_size_rows, min(max_chunk_size_bytes, max_batch_of_chunks_size_bytes)
+    )
+
+    for chunk in data_chunks:
+        chunk_size = len(chunk)
+        total_size += chunk_size
+
+        # Check if total size exceeds the limit
+        if total_size > local_relation_size_limit:
+            raise _AnalysisException(
+                errorClass="LOCAL_RELATION_SIZE_LIMIT_EXCEEDED",
+                messageParameters={
+                    "actualSize": str(total_size),
+                    "sizeLimit": str(local_relation_size_limit),
+                },
+            )
+
+        # Check if adding this chunk would exceed batch size
+        if (
+            len(current_batch) > 0
+            and current_batch_size + chunk_size > max_batch_of_chunks_size_bytes
+        ):
+            hashes += self._client.cache_artifacts(current_batch)
+            # start a new batch
+            current_batch = []
+            current_batch_size = 0
+
+        current_batch.append(chunk)
+        current_batch_size += chunk_size
+    hashes += self._client.cache_artifacts(current_batch)
+
+    if has_schema:
+        schema_hash = hashes[0]
+        data_hashes = hashes[1:]
+    else:
+        schema_hash = None
+        data_hashes = hashes
+    return ChunkedCachedLocalRelation(data_hashes, schema_hash)
+
+
+for _function in (
+    _inferSchema,
+    _createFromRDD,
+    _create_dataframe_from_connect_rdd,
+    _cache_local_relation,
+):
+    _function.__qualname__ = f"SparkSession.{_function.__name__}"
+    setattr(SparkSession, _function.__name__, _function)
+sparkContext.__qualname__ = "SparkSession.sparkContext"
+SparkSession.sparkContext = property(sparkContext)  # type: ignore[attr-defined]
+del _function, sparkContext
 
 
 def _check_schema(schema: object) -> None:

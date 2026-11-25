@@ -30,6 +30,7 @@ dependencies = [
     "pyarrow>=18.0.0",
     "numpy>=1.23.2",
     "pyyaml>=3.11",
+    "cloudpickle-rust>=0.3.0",
 ]
 # The dependencies and minimum versions of pyspark-client 4.3.0
 # (python/packaging/client/setup.py of Apache Spark v4.3.0), except its gRPC ones. The vendored
@@ -38,7 +39,10 @@ dependencies = [
 # (pyspark/pipelines/cli.py) imports yaml.
 #
 # cloudpickle is vendored at pyspark/cloudpickle (matching Apache Spark's own
-# bundling), so it is intentionally NOT an external dependency.
+# bundling), so it is intentionally NOT an external dependency. cloudpickle-rust, a faster
+# implementation of it, is: the serializers of pyspark (vendored from the commit of the protos,
+# with the RDD API) pickle the closures of UDFs and RDDs with it when it is installed, from 0.3.0
+# on, and fall back to the vendored cloudpickle otherwise.
 #
 # No optional-dependencies: unlike upstream PySpark's `connect` extra, this
 # package has no pure-Python gRPC client — the Rust extension (pyspark._pyspark)

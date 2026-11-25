@@ -19,10 +19,19 @@
 PySpark supports custom serializers for transferring data; this can improve
 performance.
 
-By default, PySpark uses :class:`CloudPickleSerializer` to serialize objects using Python's
-`cPickle` serializer, which can serialize nearly any Python object.
+By default, PySpark uses :class:`CPickleSerializer` to serialize objects. This is an alias
+that resolves to :class:`CloudPickleSerializer` (which uses the ``cloudpickle`` library and
+can serialize nearly any Python object); setting the ``PYSPARK_ENABLE_NAMEDTUPLE_PATCH=1``
+environment variable makes it resolve to :class:`PickleSerializer` (which uses the standard
+library ``pickle`` module) instead. :class:`CloudPickleSerializer` uses ``cloudpickle-rust``, a
+faster implementation of ``cloudpickle``, when it is installed, unless the
+``PYSPARK_CLOUDPICKLE_RUST=0`` environment variable is set.
 Other serializers, like :class:`MarshalSerializer`, support fewer datatypes but can be
 faster.
+
+These serializers apply to the classic RDD path only, as shown below. Spark SQL and
+DataFrame data transfers default to Arrow-based serialization (see
+:mod:`pyspark.sql.pandas.serializers`) since SPARK-54555.
 
 
 Examples
@@ -53,18 +62,17 @@ which contains two batches of two objects:
 >>> sc.stop()
 """
 
-import sys
-import os
-import io
-from itertools import chain, product
-import marshal
-import struct
-import types
-import collections
-import zlib
-import itertools
-import pickle
 import codecs
+import collections
+import io
+import itertools
+import marshal
+import os
+import pickle
+import struct
+import sys
+import types
+import zlib
 
 pickle_protocol = pickle.HIGHEST_PROTOCOL
 
@@ -82,11 +90,12 @@ __all__ = [
 class SpecialLengths:
     END_OF_DATA_SECTION = -1
     PYTHON_EXCEPTION_THROWN = -2
-    TIMING_DATA = -3
+    METRICS_DATA = -3
     END_OF_STREAM = -4
     NULL = -5
     START_ARROW_STREAM = -6
     START_OF_INIT_MESSAGE = -8
+    START_OF_INIT_RESPONSE = -9
 
 
 class Serializer:
@@ -126,9 +135,6 @@ class Serializer:
     def __eq__(self, other):
         return isinstance(other, self.__class__) and self.__dict__ == other.__dict__
 
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
     def __repr__(self):
         return "%s()" % self.__class__.__name__
 
@@ -157,7 +163,7 @@ class FramedSerializer(Serializer):
         serialized = self.dumps(obj)
         if serialized is None:
             raise ValueError("serialized value should not be None")
-        if len(serialized) > (1 << 31):
+        if len(serialized) >= (1 << 31):
             raise ValueError("can not serialize object larger than 2G")
         write_int(len(serialized), stream)
         stream.write(serialized)
@@ -172,13 +178,6 @@ class FramedSerializer(Serializer):
         if len(obj) < length:
             raise EOFError
         return self.loads(obj)
-
-    def dumps(self, obj):
-        """
-        Serialize an object into a byte array.
-        When batching is used, this will be called with an array of objects.
-        """
-        raise NotImplementedError
 
     def loads(self, obj):
         """
@@ -212,7 +211,7 @@ class BatchedSerializer(Serializer):
         self.serializer.dump_stream(self._batched(iterator), stream)
 
     def load_stream(self, stream):
-        return chain.from_iterable(self._load_stream_without_unbatching(stream))
+        return itertools.chain.from_iterable(self._load_stream_without_unbatching(stream))
 
     def _load_stream_without_unbatching(self, stream):
         return self.serializer.load_stream(stream)
@@ -291,10 +290,10 @@ class CartesianDeserializer(Serializer):
         val_batch_stream = self.val_ser._load_stream_without_unbatching(stream)
         for key_batch, val_batch in zip(key_batch_stream, val_batch_stream):
             # for correctness with repeated cartesian/zip this must be returned as one batch
-            yield product(key_batch, val_batch)
+            yield itertools.product(key_batch, val_batch)
 
     def load_stream(self, stream):
-        return chain.from_iterable(self._load_stream_without_unbatching(stream))
+        return itertools.chain.from_iterable(self._load_stream_without_unbatching(stream))
 
     def __repr__(self):
         return "CartesianDeserializer(%s, %s)" % (str(self.key_ser), str(self.val_ser))
@@ -328,7 +327,7 @@ class PairDeserializer(Serializer):
             yield zip(key_batch, val_batch)
 
     def load_stream(self, stream):
-        return chain.from_iterable(self._load_stream_without_unbatching(stream))
+        return itertools.chain.from_iterable(self._load_stream_without_unbatching(stream))
 
     def __repr__(self):
         return "PairDeserializer(%s, %s)" % (str(self.key_ser), str(self.val_ser))
@@ -369,7 +368,6 @@ if os.environ.get("PYSPARK_ENABLE_NAMEDTUPLE_PATCH") == "1":
             return (_restore, (name, fields, tuple(self)))
 
         cls.__reduce__ = __reduce__
-        cls._is_namedtuple_ = True
         return cls
 
     def _hijack_namedtuple():
@@ -430,11 +428,104 @@ class _RestrictedUnpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
+# cloudpickle-rust (the cloudpickle_rust package) is a Rust implementation of cloudpickle. Its
+# payloads are the ones of the vendored cloudpickle, except that they reference its reconstructors
+# as cloudpickle_rust.cloudpickle.<name>. PySpark pickles with it when it can be imported, unless
+# the environment variable PYSPARK_CLOUDPICKLE_RUST is 0, and loads its payloads also where it
+# cannot be imported.
+_cloudpickle_module = None
+
+
+def _cloudpickle():
+    """
+    Return the cloudpickle module that PySpark pickles with: ``cloudpickle_rust`` if it can be
+    imported and ``PYSPARK_CLOUDPICKLE_RUST`` is not ``0``, otherwise the vendored
+    ``pyspark.cloudpickle``. The choice is made once per process.
+    """
+    global _cloudpickle_module
+    module = _cloudpickle_module
+    if module is None:
+        module = _cloudpickle_module = _choose_cloudpickle()
+    return module
+
+
+def _choose_cloudpickle():
+    if os.environ.get("PYSPARK_CLOUDPICKLE_RUST") == "0":
+        return cloudpickle
+    try:
+        import cloudpickle_rust
+
+        rust = cloudpickle_rust.cloudpickle
+        registry = rust._PICKLE_BY_VALUE_MODULES
+    except Exception:
+        # Not installed, or it fails to import (e.g. cloudpickle-rust 0.3.0 with python -OO).
+        return cloudpickle
+    if not hasattr(rust, "DYNAMIC_CODE_FILENAME"):
+        # Before 0.3.0, it cannot keep the original filenames of the code pickled by value.
+        return cloudpickle
+    # Keep the original filenames of the code pickled by value, as the vendored cloudpickle 3.1
+    # does, for the tracebacks and the profilers of the processes that load it.
+    rust.DYNAMIC_CODE_FILENAME = None
+    # Share one registry of the modules pickled by value, so that
+    # pyspark.cloudpickle.register_pickle_by_value() also applies to cloudpickle_rust. The set of
+    # cloudpickle_rust is updated in place: rebinding its global would make it run upstream's
+    # Python code, which is slower.
+    registry.update(cloudpickle.cloudpickle._PICKLE_BY_VALUE_MODULES)
+    cloudpickle.cloudpickle._PICKLE_BY_VALUE_MODULES = registry
+    return cloudpickle_rust
+
+
+def _cloudpickle_dumps(obj, protocol=pickle_protocol):
+    """Pickle `obj` with :func:`_cloudpickle`."""
+    return _cloudpickle().dumps(obj, protocol)
+
+
+def _cloudpickle_dump(obj, file, protocol=pickle_protocol):
+    """Pickle `obj` into the binary `file` with :func:`_cloudpickle`."""
+    _cloudpickle().dump(obj, file, protocol)
+
+
+class _CloudPickleRustCompatUnpickler(pickle.Unpickler):
+    """
+    Unpickler that loads the payloads of cloudpickle_rust with the vendored cloudpickle, whose
+    reconstructors have the same names and signatures.
+    """
+
+    _MODULES = {
+        "cloudpickle_rust": "pyspark.cloudpickle",
+        "cloudpickle_rust.cloudpickle": "pyspark.cloudpickle.cloudpickle",
+        "cloudpickle_rust.cloudpickle_fast": "pyspark.cloudpickle.cloudpickle_fast",
+    }
+
+    def find_class(self, module, name):
+        return super().find_class(self._MODULES.get(module, module), name)
+
+
+def _cloudpickle_loads(data, encoding="ASCII"):
+    """
+    Like :func:`pickle.loads`, but also loads the payloads of cloudpickle_rust where it cannot be
+    imported. They are first loaded by :func:`pickle.loads`, so that loading only pays for the
+    compatibility unpickler when cloudpickle_rust is missing.
+    """
+    try:
+        return pickle.loads(data, encoding=encoding)
+    except ImportError as e:
+        name = e.name or ""
+        if name != "cloudpickle_rust" and not name.startswith("cloudpickle_rust."):
+            raise
+    return _CloudPickleRustCompatUnpickler(io.BytesIO(data), encoding=encoding).load()
+
+
+def _cloudpickle_load(file, encoding="ASCII"):
+    """Like :func:`pickle.load`, but loads like :func:`_cloudpickle_loads`."""
+    return _cloudpickle_loads(file.read(), encoding=encoding)
+
+
 class PickleSerializer(FramedSerializer):
     """
     Serializes objects using Python's pickle serializer:
 
-        http://docs.python.org/2/library/pickle.html
+        https://docs.python.org/3/library/pickle.html
 
     This serializer supports nearly any Python object, but may
     not be as fast as more specialized serializers.
@@ -444,7 +535,9 @@ class PickleSerializer(FramedSerializer):
         return pickle.dumps(obj, pickle_protocol)
 
     def loads(self, obj, encoding="bytes"):
-        return pickle.loads(obj, encoding=encoding)
+        # It also loads the commands that CloudPickleSerializer pickles, which reference
+        # cloudpickle_rust if it pickled them.
+        return _cloudpickle_loads(obj, encoding=encoding)
 
 
 class CloudPickleSerializer(FramedSerializer):
@@ -464,7 +557,7 @@ class CloudPickleSerializer(FramedSerializer):
         from pyspark.util import print_exec
 
         try:
-            return cloudpickle.dumps(obj, pickle_protocol)
+            return _cloudpickle_dumps(obj, pickle_protocol)
         except pickle.PickleError:
             raise
         except Exception as e:
@@ -480,7 +573,7 @@ class CloudPickleSerializer(FramedSerializer):
         if self.allowed_names is not None:
             unpickler = _RestrictedUnpickler(io.BytesIO(obj), self.allowed_names, encoding=encoding)
             return unpickler.load()
-        return cloudpickle.loads(obj, encoding=encoding)
+        return _cloudpickle_loads(obj, encoding=encoding)
 
 
 if os.environ.get("PYSPARK_ENABLE_NAMEDTUPLE_PATCH") == "1":
@@ -493,7 +586,7 @@ class MarshalSerializer(FramedSerializer):
     """
     Serializes objects using Python's Marshal serializer:
 
-        http://docs.python.org/2/library/marshal.html
+        https://docs.python.org/3/library/marshal.html
 
     This serializer is faster than CloudPickleSerializer but supports fewer datatypes.
     """
@@ -505,41 +598,12 @@ class MarshalSerializer(FramedSerializer):
         return marshal.loads(obj)
 
 
-class AutoSerializer(FramedSerializer):
-    """
-    Choose marshal or pickle as serialization protocol automatically
-    """
-
-    def __init__(self):
-        FramedSerializer.__init__(self)
-        self._type = None
-
-    def dumps(self, obj):
-        if self._type is not None:
-            return b"P" + pickle.dumps(obj, -1)
-        try:
-            return b"M" + marshal.dumps(obj)
-        except Exception:
-            self._type = b"P"
-            return b"P" + pickle.dumps(obj, -1)
-
-    def loads(self, obj):
-        _type = obj[0]
-        if _type == b"M":
-            return marshal.loads(obj[1:])
-        elif _type == b"P":
-            return pickle.loads(obj[1:])
-        else:
-            raise ValueError("invalid serialization type: %s" % _type)
-
-
 class CompressedSerializer(FramedSerializer):
     """
     Compress the serialized data
     """
 
     def __init__(self, serializer):
-        FramedSerializer.__init__(self)
         assert isinstance(serializer, FramedSerializer), "serializer must be a FramedSerializer"
         self.serializer = serializer
 

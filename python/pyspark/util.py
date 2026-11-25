@@ -14,6 +14,7 @@ from types import TracebackType
 from typing import (
     Any,
     Callable,
+    Hashable,
     IO,
     Iterator,
     Optional,
@@ -82,6 +83,52 @@ JVM_INT_MIN: int = -(1 << 31)
 JVM_INT_MAX: int = (1 << 31) - 1
 JVM_LONG_MIN: int = -(1 << 63)
 JVM_LONG_MAX: int = (1 << 63) - 1
+
+
+# PySpark's, of the RDD API of Spark Connect (pyspark.core.connect), which partitions the keys of
+# pairs by it, as Spark Classic's RDDs. Whether PYTHONHASHSEED was found set, which it stays: the
+# hash of strings is fixed when the interpreter starts. Checking os.environ for every key costs
+# more than hashing most keys.
+_python_hash_seed_set = False
+
+
+def portable_hash(x: Hashable) -> int:
+    """
+    Consistent hash for builtin Spark partition keys (notably ``None`` and tuples containing
+    ``None``), aligned with JVM expectations.
+
+    The algorithm mirrors CPython 2.7 hashing for these cases.
+
+    Examples
+    --------
+    >>> portable_hash(None)
+    0
+    >>> portable_hash((None, 1)) & 0xffffffff
+    219750521
+    """
+    global _python_hash_seed_set
+
+    if not _python_hash_seed_set:
+        if "PYTHONHASHSEED" not in os.environ:
+            raise PySparkRuntimeError(
+                errorClass="PYTHON_HASH_SEED_NOT_SET",
+                messageParameters={},
+            )
+        _python_hash_seed_set = True
+
+    if x is None:
+        return 0
+    if isinstance(x, tuple):
+        h = 0x345678
+        for i in x:
+            h ^= portable_hash(i)
+            h *= 1000003
+            h &= sys.maxsize
+        h ^= len(x)
+        if h == -1:
+            h = -2
+        return int(h)
+    return hash(x)
 
 
 def print_exec(stream: TextIO) -> None:
