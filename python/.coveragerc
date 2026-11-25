@@ -101,6 +101,15 @@ omit =
     */pyspark/sql/connect/streaming/__init__.py
     */pyspark/sql/connect/client/retries.py
     */pyspark/sql/connect/client/__init__.py
+    # The RDD API of Spark Connect, which the script keeps byte-identical to the commit of the
+    # protos (PROTO_VENDORED_FILES): the facade of its RDDs, its client, and the pure-Python
+    # modules that it runs, which the suites of that commit test (spark-branch-rdd.yml).
+    */pyspark/core/*
+    */pyspark/join.py
+    */pyspark/rddsampler.py
+    */pyspark/resultiterable.py
+    */pyspark/shuffle.py
+    */pyspark/statcounter.py
     # The native extension and its embedded Row and value sources, which have synthetic
     # filenames.
     */pyspark/_pyspark*

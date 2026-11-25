@@ -17,8 +17,9 @@
 """Check that the Python coverage leaves out every file vendored verbatim from upstream.
 
 python/.coveragerc measures the hand-written drop-in only; the files that
-scripts/check_vendored_upstream.sh keeps byte-identical to the Apache Spark tag are covered
-by Apache's own tests, so they must be in its omit list.
+scripts/check_vendored_upstream.sh keeps byte-identical to the Apache Spark tag, or to the
+commit of the protos (PROTO_VENDORED_FILES), are covered by the tests of upstream, so they must
+be in its omit list.
 """
 
 import configparser
@@ -37,7 +38,7 @@ def vendored_entries():
         body = re.search(name + r"=\((.*?)\n\)", src, re.S).group(1)
         return re.findall(r'^\s*"([^"]+)"', body, re.M)
 
-    return array("VENDORED_DIRS"), array("VENDORED_FILES")
+    return array("VENDORED_DIRS"), array("VENDORED_FILES") + array("PROTO_VENDORED_FILES")
 
 
 def omit_patterns():
@@ -65,6 +66,7 @@ class CoverageScopeTests(unittest.TestCase):
         dirs, files = vendored_entries()
         self.assertIn("cloudpickle", dirs)
         self.assertIn("taskcontext.py", files)
+        self.assertIn("core/connect/rdd.py", files)
         self.assertIn("*/cloudpickle/*", omit_patterns())
 
 
