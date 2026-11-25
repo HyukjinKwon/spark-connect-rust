@@ -4982,6 +4982,16 @@ impl PySparkSession {
         Ok(crate::state::attr(slf.as_any(), pyo3::intern!(slf.py(), "_client"))?.unbind())
     }
 
+    /// Release the cached remote relation `relation_id` on the server, for the finalizer of
+    /// `pyspark.sql.connect.plan.CachedRemoteRelation`, as the core releases the relations of its
+    /// checkpoints: the request is built on this thread, of the context of its requests, and sent
+    /// on the shared runtime without waiting (see `SparkSession::release_cached_remote_relation`).
+    /// The garbage collector runs a finalizer on any thread whenever it collects, also during a
+    /// call that a request of its own would wait on, so a finalizer never waits on a request.
+    fn _release_cached_remote_relation(&self, relation_id: String) {
+        self.session.release_cached_remote_relation(relation_id);
+    }
+
     /// Release the session on the server, without stopping it, for `client.release_session`.
     fn _release_session(&self, py: Python<'_>) -> PyResult<()> {
         let session = self.session.clone();

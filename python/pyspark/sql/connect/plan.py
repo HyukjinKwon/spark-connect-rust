@@ -270,10 +270,12 @@ class CachedRemoteRelation(LogicalPlan):
         # If session is already closed, all cached DataFrame should be released.
         if session is not None and not session.client.is_closed and self._relation_id is not None:
             try:
-                # The command, as PySpark Connect's sends it, whose responses are ignored: they
-                # are not converted, as that of a checkpoint is into another cached relation.
-                command = RemoveRemoteCachedRelation(self).command(session=session.client)
-                session._execute_command(command.SerializeToString())
+                # The release of the core, as of the relations of its checkpoints: the command of
+                # PySpark Connect, built on this thread, of the context of its requests, and sent
+                # without waiting. The garbage collector runs a finalizer on any thread whenever
+                # it collects, also during a call that a request of its own would wait on, so a
+                # finalizer never waits on a request (PySpark Connect's releases from a thread).
+                session._release_cached_remote_relation(self._relation_id)
             except Exception as e:
                 logger.warning(f"RemoveRemoteCachedRelation failed with exception: {e}.")
 

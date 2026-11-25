@@ -38416,7 +38416,7 @@ def test_failed_release_of_a_cached_relation_is_logged_as_pyspark(monkeypatch):
         class client:  # noqa: N801 - the session's client, as the finalizer reads it
             is_closed = False
 
-        def _execute_command(self, command):
+        def _release_cached_remote_relation(self, relation_id):
             raise RuntimeError("boom")
 
     # The finalizer releases the relation on the server, and only logs a failure, as PySpark.
@@ -38433,6 +38433,83 @@ def test_failed_release_of_a_cached_relation_is_logged_as_pyspark(monkeypatch):
     # Collecting the relation runs its finalizer again, which must not log a second time.
     relation._relation_id = None
     assert warnings_logged == ["RemoveRemoteCachedRelation failed with exception: boom."]
+
+
+def test_a_cached_relation_dropped_during_a_request_of_its_thread_does_not_wait(mock_connect):
+    # The finalizer of a CachedRemoteRelation that a signal handler drops while a request of its
+    # thread waits for the server runs on the thread of that request, as the garbage collector
+    # runs a finalizer on any thread. A release that waited for a request of its own would block
+    # the handler, and so the request, as the server holds every ExecutePlan: the handler returns
+    # before the server answers, and the removal and the request complete once it does.
+    import gc
+    import signal
+    import threading
+
+    from pyspark.sql.connect.plan import CachedRemoteRelation
+
+    spark, service = mock_connect
+    handled = threading.Event()
+
+    def handler(signum, frame):
+        relation = CachedRemoteRelation("r1", spark)
+        del relation
+        gc.collect()
+        handled.set()
+
+    def signal_then_release(outcome):
+        try:
+            for _ in range(500):
+                if service.execute_calls >= 1:
+                    break
+                time.sleep(0.01)
+            os.kill(os.getpid(), signal.SIGUSR1)
+            outcome.append(handled.wait(3))
+        finally:
+            service.release_response()
+
+    previous = signal.signal(signal.SIGUSR1, handler)
+    service.block_execute = True
+    outcome = []
+    helper = threading.Thread(target=signal_then_release, args=(outcome,))
+    try:
+        helper.start()
+        rows = spark.range(2).collect()
+    finally:
+        helper.join(10)
+        service.block_execute = False
+        signal.signal(signal.SIGUSR1, previous)
+    # The handler returned before the server answered; the request completed after it did (the
+    # mock answers with no rows).
+    assert outcome == [True]
+    assert rows == []
+    (removal,) = _relation_removals(service, 1, 10)
+    assert removal.plan.command.remove_cached_remote_relation_command.relation.relation_id == "r1"
+
+
+def test_the_finalizer_of_a_cached_relation_releases_it_without_waiting(mock_connect, monkeypatch):
+    # The finalizer of a CachedRemoteRelation, such as of the pin of an RDD, releases the relation
+    # as the core releases those of its checkpoints: built on the thread of the finalizer, of the
+    # tags of its requests then, and sent on the runtime of the core without waiting. The garbage
+    # collector runs a finalizer on any thread, also during a call that a request of its own would
+    # wait on (PySpark Connect's finalizer hands its release to a thread of its own).
+    import gc
+
+    from pyspark.sql.connect.plan import CachedRemoteRelation
+
+    spark, service = mock_connect
+    waited = []
+    monkeypatch.setattr(
+        type(spark), "_execute_command", lambda self, command: waited.append(command), raising=False
+    )
+    spark.addTag("t1")
+    relation = CachedRemoteRelation("r1", spark)
+    del relation
+    gc.collect()
+    (removal,) = _relation_removals(service, 1, 10)
+    assert removal.plan.command.remove_cached_remote_relation_command.relation.relation_id == "r1"
+    assert list(removal.tags) == ["t1"]
+    assert waited == []
+    spark.clearTags()
 
 
 @pytest.mark.parametrize("name", [

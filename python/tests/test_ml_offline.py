@@ -29,6 +29,7 @@ import logging
 import subprocess
 import sys
 import textwrap
+import time
 import weakref
 
 import _ml_fetch_pair_cases
@@ -3355,6 +3356,10 @@ def test_connect_conversions_as_pyspark(ml_mock):
     assert service.execute_requests == []
     del df
     gc.collect()
+    # The finalizer sends the removal without waiting for it, so it arrives in a while.
+    deadline = time.time() + 10
+    while not service.execute_requests and time.time() < deadline:
+        time.sleep(0.05)
     (command,) = _commands(service)
     assert command.remove_cached_remote_relation_command.relation.relation_id == "r1"
 

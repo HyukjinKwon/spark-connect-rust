@@ -1696,8 +1696,11 @@ impl SparkSession {
     /// `SparkConnectClient::spawn_unary_execute_plan`). It does not wait for the server, so that
     /// a drop never blocks, and its errors are ignored. A stopped session is not released:
     /// stopping it released its server state already, as PySpark skips a closed client. Safe to
-    /// call from `Drop`.
-    pub(crate) fn release_cached_remote_relation(&self, relation_id: String) {
+    /// call from `Drop`, and from the finalizer of a binding, which the garbage collector runs on
+    /// any thread whenever it collects (see `pyspark.sql.connect.plan.CachedRemoteRelation`). Not
+    /// a stable API.
+    #[doc(hidden)]
+    pub fn release_cached_remote_relation(&self, relation_id: String) {
         if self.is_stopped() {
             return;
         }
