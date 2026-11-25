@@ -231,9 +231,14 @@ jobs:
           done
 
       - name: Rust behavioral e2e tests (against the live server)
+        # As build_python_connect.yml's connect-e2e, but the tests of
+        # scripts/spark_master_known_failures.txt, which fail against the server of master for its
+        # own differences and bugs.
         env:
           SPARK_REMOTE: sc://localhost:15002
         run: |
+          skips=$(awk '$1 == "cargo" {printf " --skip %s", $2}' scripts/spark_master_known_failures.txt)
+          echo "Skipped:${skips}"
           cargo test -p apache-spark-connect \
             --test e2e_functions --test e2e_columns --test e2e_dataframe \
             --test e2e_coverage --test e2e_linear_svc --test e2e_linear_regression --test e2e_generalized_linear_regression --test e2e_remaining_classifiers --test e2e_remaining_regressors --test e2e_kmeans --test e2e_bisecting_kmeans --test e2e_gaussian_mixture --test e2e_remaining_clustering --test e2e_ml_features --test e2e_frequent_patterns --test e2e_als --test e2e_evaluators --test e2e_statistics --test e2e_ml_object --test e2e_feature_models --test e2e_fpm_recommendation_evaluation --test e2e_ml_regression_api --test e2e_ml_clustering_api --test e2e_decision_tree_regressor --test e2e_decision_tree_classifier --test e2e_gbt_regressor --test e2e_naive_bayes --test e2e_gbt_classifier --test e2e_random_forest --test e2e_random_forest_regressor --test e2e_integration \
@@ -244,7 +249,7 @@ jobs:
             --test e2e_reattach_drop \
             --test e2e_lr_svc_api \
             --test e2e_ml_meta \
-            -- --test-threads=1
+            -- --test-threads=1 --exact ${skips}
 
       - name: Rust core client integration tests (against the live server)
         env:
@@ -266,7 +271,7 @@ jobs:
     name: Drop-in live-server tests (Spark of the protos)
     needs: spark-dist
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -338,24 +343,54 @@ jobs:
           done
 
       - name: Drop-in live-server tests, without protobuf
-        # As the step of the same name of build_python_connect.yml, against this server.
+        # The list of the step of the same name of build_python_connect.yml, against this server,
+        # but the tests of scripts/spark_master_known_failures.txt, which fail against the server
+        # of master for its own differences and bugs (dropin_deselect_plugin.py deselects them).
         working-directory: python
         env:
           SPARK_REMOTE: sc://localhost:15002
-          PYTHONPATH: ${{ github.workspace }}/python
+          PYTHONPATH: ${{ github.workspace }}/python:${{ github.workspace }}/scripts
         run: |
           python -m venv /tmp/client
           /tmp/client/bin/python -m pip install pytest 'pandas>=2.2,<3.0' pyarrow numpy pyyaml 'plotly<6.0.0'
           if /tmp/client/bin/python -c "import google.protobuf" 2>/dev/null; then
             echo "protobuf is installed in the client environment"; exit 1
           fi
-          /tmp/client/bin/python -m pytest -q -rs \
+          /tmp/client/bin/python -c \
+            "import pyspark._pyspark as r, pyspark.sql.connect.proto as p; assert issubclass(p.Relation, r.ProtoMessage)"
+          RUST_PARITY_DESELECT="$(awk '$1 == "pytest" {print $2}' ../scripts/spark_master_known_failures.txt)"
+          export RUST_PARITY_DESELECT
+          /tmp/client/bin/python -m pytest -q -rs -p dropin_deselect_plugin \
             tests/test_proto_rust_offline.py \
             tests/test_arrow_e2e.py \
             tests/test_dropin_e2e.py \
             tests/test_ml_e2e.py \
             tests/test_ml_api_e2e.py \
+            tests/test_ml_subclasses_e2e.py \
+            tests/test_logistic_api_e2e.py \
             tests/test_misc_api_e2e.py \
+            tests/test_regression_api_e2e.py \
+            tests/test_ml_regression_clustering_classes_e2e.py \
+            tests/test_tree_api_e2e.py \
+            tests/test_gbt_classifier_e2e.py \
+            tests/test_gbt_regressor_e2e.py \
+            tests/test_naive_bayes_e2e.py \
+            tests/test_bisecting_kmeans_e2e.py \
+            tests/test_clustering_api_e2e.py \
+            tests/test_gaussian_mixture_e2e.py \
+            tests/test_generalized_linear_regression_e2e.py \
+            tests/test_remaining_classifiers_e2e.py \
+            tests/test_ml_classification_classes_e2e.py \
+            tests/test_remaining_regressors_e2e.py \
+            tests/test_remaining_clustering_e2e.py \
+            tests/test_ml_features_e2e.py \
+            tests/test_feature_api_e2e.py \
+            tests/test_frequent_patterns_e2e.py \
+            tests/test_als_e2e.py \
+            tests/test_als_recommendation_arguments_e2e.py \
+            tests/test_fpm_recommendation_api_e2e.py \
+            tests/test_evaluation_api_e2e.py \
+            tests/test_evaluators_e2e.py \
             tests/test_statistics_e2e.py
 
       - name: Upload the server log

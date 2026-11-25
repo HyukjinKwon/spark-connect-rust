@@ -1,0 +1,57 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# The live tests that fail against a server of the Spark of the protos (Spark master,
+# 5.0.0-SNAPSHOT, at crates/spark-connect-proto/proto/SPARK_SHA.txt), which
+# .github/workflows/spark-branch-e2e.yml runs them against, while they pass against Spark 4.3.0
+# (build_python_connect.yml). The client mirrors PySpark 4.3.0, whose behaviors these tests check:
+# each entry is a difference or a bug of the server of master, not of the client. Remove an entry
+# once the server it is run against passes it.
+#
+# One test per line, `<runner> <test>  # <reason>`:
+#   pytest <node-id suffix of a test of python/tests>  (dropin_deselect_plugin.py deselects it)
+#   cargo <name of a test of crates/spark-connect/tests>  (cargo test -- --exact --skip <name>)
+
+# --- Spark master bug: SPARK-58556 (2f4bd74e30f) makes MLCache.register keep the toString of each
+#     model, and GeneralizedLinearRegressionModel.toString reads $(link), which has no default: a
+#     GLR fit without `link` fails with "Failed to find a default value for link". ---
+pytest test_generalized_linear_regression_e2e.py::test_generalized_linear_regression_families_links_and_offsets[gaussian-None-None]  # GLR toString of no link
+pytest test_generalized_linear_regression_e2e.py::test_generalized_linear_regression_families_links_and_offsets[binomial-None-None]  # GLR toString of no link
+pytest test_generalized_linear_regression_e2e.py::test_generalized_linear_regression_families_links_and_offsets[poisson-None-None]  # GLR toString of no link
+pytest test_generalized_linear_regression_e2e.py::test_generalized_linear_regression_families_links_and_offsets[gamma-None-None]  # GLR toString of no link
+pytest test_generalized_linear_regression_e2e.py::test_generalized_linear_regression_families_links_and_offsets[tweedie-None-None]  # GLR toString of no link
+pytest test_generalized_linear_regression_e2e.py::test_generalized_linear_regression_families_links_and_offsets[tweedie-None-0.0]  # GLR toString of no link
+pytest test_generalized_linear_regression_e2e.py::test_generalized_linear_regression_defaults_no_intercept_and_regularization  # GLR toString of no link
+pytest test_ml_e2e.py::test_native_models_are_released_once_their_last_owner_is_gone_as_pyspark  # fits a GLR of no link
+pytest test_ml_e2e.py::test_native_models_transform_a_dataframe_of_another_session_as_pyspark  # fits a GLR of no link
+cargo generalized_linear_regression_default_columns_and_zero_weight_outlier  # GLR toString of no link
+cargo generalized_linear_regression_families_offsets_and_link_predictions  # GLR toString of no link
+cargo generalized_linear_regression_fits_different_lines_and_keeps_lazy_predictions_alive  # GLR toString of no link
+cargo generalized_linear_regression_tweedie_log_link_and_regularization  # GLR toString of no link
+cargo generalized_linear_regression_models_have_the_members_and_summaries_of_pyspark  # GLR toString of no link
+
+# --- ML persistence writes the server's version (sparkVersion 5.0.0-SNAPSHOT) in the metadata
+#     that these goldens of PySpark 4.3.0 against a 4.3.0 server hold as 4.3.0 ---
+pytest test_ml_api_e2e.py::test_live_cases_are_pyspark_mls[Pipeline]  # sparkVersion of the server in the metadata
+pytest test_ml_api_e2e.py::test_live_cases_are_pyspark_mls[CrossValidator]  # sparkVersion of the server in the metadata
+pytest test_ml_api_e2e.py::test_live_cases_are_pyspark_mls[TrainValidationSplit]  # sparkVersion of the server in the metadata
+pytest test_misc_api_e2e.py::test_live_cases_are_pyspark_mls[OneVsRest]  # sparkVersion of the server in the metadata
+
+# --- The Python workers of the server run its own PySpark (master's) ---
+pytest test_dropin_e2e.py::test_udfs_captured_by_foreach_batch_functions_run_as_pyspark  # a UDF of PySpark 4.3.0 pickled into a foreachBatch function has no bufferSchema, which master's UserDefinedFunction reads
+
+# --- Results that master changed ---
+pytest test_dropin_e2e.py::test_join_as_of_and_merge_asof_give_the_rows_of_pyspark  # SPARK-62245 (13348f79732): the as-of tolerance bound stays inclusive when allowExactMatches is false
+pytest test_dropin_e2e.py::test_null_get_item_reads_its_nulls_though_the_server_declares_it_non_nullable  # SPARK-60755 (075749d08a3): getItem(None) is declared nullable

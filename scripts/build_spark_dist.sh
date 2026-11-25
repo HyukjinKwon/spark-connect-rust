@@ -21,11 +21,12 @@
 #
 #   scripts/build_spark_dist.sh [REPOSITORY [REF]] DIR
 #
-# REPOSITORY is a GitHub repository (apache/spark, HyukjinKwon/spark) or a git URL, and REF a
-# branch, a tag or a commit. They default to the commit that the vendored protos are of
-# (crates/spark-connect-proto/proto/SPARK_REPO.txt and SPARK_SHA.txt), so that the server speaks
-# the client's protocol. The distribution is unpacked into DIR/spark-<version>-bin-ci-connect,
-# whose path the script prints last; DIR/SPARK_COMMIT records the commit it was built of.
+# REPOSITORY is a GitHub repository (apache/spark, HyukjinKwon/spark), a git URL or the path of a
+# local repository (whose unpushed commits it can build), and REF a branch, a tag or a commit. They
+# default to the commit that the vendored protos are of (crates/spark-connect-proto/proto/
+# SPARK_REPO.txt and SPARK_SHA.txt), so that the server speaks the client's protocol. The
+# distribution is unpacked into DIR/spark-<version>-bin-ci-connect, whose path the script prints
+# last; DIR/SPARK_COMMIT records the commit it was built of.
 #
 # It builds with sbt (dev/make-distribution.sh --sbt-enabled), with -Phadoop-3 -Phive
 # -Phive-thriftserver as the release builds the hadoop3 package. It needs a JDK that the commit
@@ -51,12 +52,16 @@ esac
 
 if [[ "${ref}" =~ ^[0-9a-f]{40}$ ]]; then
   sha="${ref}"
+elif [ -d "${url}" ]; then
+  # A local repository resolves any revision, such as an abbreviated commit that is not pushed.
+  sha="$(git -C "${url}" rev-parse --verify --quiet "${ref}^{commit}" || true)"
 else
-  sha="$(git ls-remote "${url}" "${ref}" "refs/heads/${ref}" "refs/tags/${ref}" | awk 'NR == 1 {print $1}')"
-  if [ -z "${sha}" ]; then
-    echo "::error::${ref} is not a branch or a tag of ${url}" >&2
-    exit 1
-  fi
+  sha="$(git ls-remote "${url}" "${ref}" "refs/heads/${ref}" "refs/tags/${ref}" \
+    | awk 'NR == 1 {print $1}')"
+fi
+if [ -z "${sha}" ]; then
+  echo "::error::${ref} is not a revision of ${url}" >&2
+  exit 1
 fi
 echo "Building the Spark Connect distribution of ${url} ${sha}"
 
