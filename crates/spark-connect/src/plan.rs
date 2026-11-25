@@ -5824,6 +5824,8 @@ mod placeholder_tests {
         // builds over the relations of DataFrames, which placeholders stand for: each input of
         // each relation type, in the order of its fields, and the RDD of an `RDDCommand`.
         use proto::rdd_relation::{self as rdd, RelationType as Rdd};
+        type OneInput<'a> = Box<dyn Fn(&proto::Relation) -> Rdd + 'a>;
+        type TwoInputs<'a> = Box<dyn Fn(&proto::Relation, &proto::Relation) -> Rdd + 'a>;
         let ids = Arc::new(PlanIds::new());
         let node = Arc::new(range(0, 3, 1));
         let relation = relation_with_ids(&node, &ids).unwrap();
@@ -5839,7 +5841,7 @@ mod placeholder_tests {
                 },
             )))
         };
-        let one_input: Vec<Box<dyn Fn(&proto::Relation) -> Rdd>> = vec![
+        let one_input: Vec<OneInput<'_>> = vec![
             Box::new(|r| {
                 Rdd::MapPartitions(Box::new(rdd::MapPartitions {
                     input: input(r),
@@ -5894,7 +5896,7 @@ mod placeholder_tests {
             assert_eq!(relation_inputs(&plan), vec![&relation]);
             assert!(!holds_expressions(&plan));
         }
-        let two_inputs: Vec<Box<dyn Fn(&proto::Relation, &proto::Relation) -> Rdd>> = vec![
+        let two_inputs: Vec<TwoInputs<'_>> = vec![
             Box::new(|a, b| {
                 Rdd::Union(rdd::Union {
                     inputs: vec![a.clone(), b.clone()],

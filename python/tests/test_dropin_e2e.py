@@ -4158,8 +4158,9 @@ def test_sessions_raise_the_errors_of_tags_tables_and_jvm_attributes_as_pyspark(
     with pytest.raises(PySparkTypeError) as e:
         session.table(1)
     assert e.value.getCondition() == "NOT_EXPECTED_TYPE"
+    # Not `sparkContext`, the SparkContext of the RDD API of Spark Connect (pyspark.core.connect).
     with pytest.raises(PySparkAttributeError) as e:
-        session.sparkContext
+        session._jsc
     assert e.value.getCondition() == "JVM_ATTRIBUTE_NOT_SUPPORTED"
 
 

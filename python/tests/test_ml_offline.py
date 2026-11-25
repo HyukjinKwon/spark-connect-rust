@@ -3970,9 +3970,11 @@ def test_public_dataframe_base_factory_and_native_dispatch(ml_mock):
     ]
     assert inspect.signature(DataFrame.select) == inspect.signature(ConnectDataFrame.select)
     assert DataFrame.select.__doc__ == ConnectDataFrame.select.__doc__
+    # But `rdd`, of the RDD API of Spark Connect (pyspark.core.connect), which PySpark's classic
+    # DataFrame defines only when not is_remote_only(), which never holds of the drop-in.
     assert {
         name for name in dir(ConnectDataFrame)
-        if not name.startswith("_") and name != "is_cached"
+        if not name.startswith("_") and name not in ("is_cached", "rdd")
     } <= set(dir(DataFrame))
 
     # Public-base unbound methods dispatch to the real native frame, as PySpark's
@@ -4388,7 +4390,7 @@ def test_public_dataframe_attribute_dispatch_and_restore(ml_mock, monkeypatch):
     # Explicit __getattr__ resolves a column even when a method has that name.
     assert repr(DataFrame.__getattr__(frame, "count")) == "Column<'count'>"
     for name, condition in (
-        ("rdd", "JVM_ATTRIBUTE_NOT_SUPPORTED"),
+        ("_jdf", "JVM_ATTRIBUTE_NOT_SUPPORTED"),
         ("__missing_column__", "ATTRIBUTE_NOT_SUPPORTED"),
     ):
         with pytest.raises(PySparkAttributeError) as error:

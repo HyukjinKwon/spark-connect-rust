@@ -2617,10 +2617,16 @@ def test_sessions_raise_the_errors_of_their_arguments_as_pyspark(mock_connect, t
     for path in (tmp_path / "missing.txt", tmp_path):
         with pytest.raises(AssertionError, match="local path must be a file path."):
             spark.copyFromLocalToFs(str(path), "/dest")
-    for name in ("_jsc", "_jconf", "_jvm", "_jsparkSession", "sparkContext"):
+    for name in ("_jsc", "_jconf", "_jvm", "_jsparkSession"):
         with pytest.raises(PySparkAttributeError) as e:
             getattr(spark, name)
         assert e.value.getMessageParameters() == {"attr_name": name}
+    # Not `sparkContext`: the session-scoped SparkContext of the RDD API of Spark Connect
+    # (pyspark.core.connect, of the commit of the protos), which makes no request.
+    from pyspark.core.connect.context import SparkContext as ConnectSparkContext
+
+    assert isinstance(spark.sparkContext, ConnectSparkContext)
+    assert spark.sparkContext is spark.sparkContext
     assert getattr(spark, "no_such_attribute", "default") == "default"
     # As PySpark's `object.__getattribute__`, whose AttributeError names the attribute as it is.
     for name in ("no_such_attribute", "a\ud800"):
@@ -27631,14 +27637,17 @@ def test_dataframes_take_their_arguments_and_attributes_as_pyspark(mock_connect,
         assert e.value.getMessageParameters() == {
             "arg_name": arg_name, "expected_type": "str", "arg_type": arg_type}
     assert type(df._not_a_dunder).__name__ == "Column"
-    # `rdd` too: pyspark-client's DataFrame defines no `rdd` property (only a classic-capable
-    # PySpark does), so its `__getattr__` raises an AttributeError, and `hasattr` is False.
-    for name in ("_jseq", "_jdf", "_jmap", "_jcols", "rdd"):
+    for name in ("_jseq", "_jdf", "_jmap", "_jcols"):
         with pytest.raises(PySparkAttributeError) as e:
             getattr(df, name)
         assert e.value.getCondition() == "JVM_ATTRIBUTE_NOT_SUPPORTED"
         assert e.value.getMessageParameters() == {"attr_name": name}
-    assert not hasattr(df, "rdd")
+    # Not `rdd`: the property of the RDD API of Spark Connect (pyspark.core.connect, of the
+    # commit of the protos), of which `__getattr__` makes a column, as PySpark Connect's.
+    from pyspark.sql.dataframe import DataFrame as ClassicDataFrame
+
+    assert isinstance(type(df).__dict__["rdd"], property)
+    assert repr(ClassicDataFrame.__getattr__(df, "rdd")) == "Column<'rdd'>"
     with pytest.raises(PySparkAttributeError) as e:
         df.__not_a_column__
     assert e.value.getCondition() == "ATTRIBUTE_NOT_SUPPORTED"

@@ -3988,9 +3988,21 @@ impl PySparkSession {
         let parsed = pyspark_checked_schema(py, &this, schema)?;
         let schema = parsed.as_ref().or(schema);
         if is_rdd {
+            // As PySpark's createDataFrame of that branch, of the schema that it checked: a DDL
+            // string as the server parses it, which is then an `AtomicType` or a `StructType`, a
+            // list or a tuple, or None (`_check_schema` of the session's module).
+            let schema = match schema {
+                Some(text) if text.is_instance_of::<pyo3::types::PyString>() => {
+                    let parsed = crate::types::schema_data_type(py, &this.get()?.session, text)?;
+                    Some(crate::types::data_type_to_py(py, &parsed)?.into_bound(py))
+                }
+                other => other.cloned(),
+            };
+            py.import(pyo3::intern!(py, "pyspark.sql.connect.session"))?
+                .getattr(pyo3::intern!(py, "_check_schema"))?
+                .call1((schema.clone().unwrap_or_else(|| py.None().into_bound(py)),))?;
             // PySpark's `_cols`, of a list or a tuple of names, each re-encoded as UTF-8 unless it
-            // is a str, else its `_schema`, the schema as checked and parsed above, and its
-            // `verifySchema`, true when it is None.
+            // is a str, else its `_schema`, and its `verifySchema`, true when it is None.
             let schema = match schema {
                 Some(names)
                     if names.is_instance_of::<pyo3::types::PyList>()
@@ -4007,7 +4019,7 @@ impl PySparkSession {
                     }
                     cols.into_any()
                 }
-                Some(schema) => schema.clone(),
+                Some(schema) => schema,
                 None => py.None().into_bound(py),
             };
             let verify = match verifySchema {

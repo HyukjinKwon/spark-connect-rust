@@ -1,0 +1,281 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: RDD API against the Spark of the protos
+
+# The commit of the protos (crates/spark-connect-proto/proto/SPARK_REPO.txt and SPARK_SHA.txt) is
+# of a fork with the RDD API of Spark Connect: its RDDRelation and RDDCommand protos, and the Python
+# client of them (pyspark.core.connect), which the drop-in vendors from that commit. This workflow
+# builds the Spark Connect distribution of that commit, or of the repository and ref given to a
+# manual run, as spark-branch-e2e.yml does (the same job, of the same cache keys, so that either
+# workflow builds it for both), and runs against a server of it the drop-in's live tests of the
+# RDD API and the RDD API suites of that commit (python/pyspark/tests/connect) through the drop-in
+# (scripts/run_official_tests.py --dropin), but the files of scripts/rdd_known_failures.txt.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+  push:
+    branches: [master, "branch-*"]
+  pull_request:
+    branches: [master, "branch-*"]
+  workflow_dispatch:
+    inputs:
+      spark-repository:
+        description: "GitHub repository of the Spark server (default: SPARK_REPO.txt), e.g. HyukjinKwon/spark"
+        required: false
+        default: ""
+      spark-ref:
+        description: "Branch, tag or commit of it (default: SPARK_SHA.txt), e.g. connect-rdd-catalyst"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "21"
+  SPARK_TESTING: "1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  spark-dist:
+    name: Spark Connect distribution of the protos' commit
+    runs-on: ubuntu-latest
+    # A cold sbt build of Spark takes 40 to 70 minutes on a hosted runner; a cached one, seconds.
+    timeout-minutes: 150
+    outputs:
+      key: ${{ steps.resolve.outputs.key }}
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Resolve the Spark commit
+        id: resolve
+        env:
+          REPOSITORY: ${{ inputs.spark-repository }}
+          REF: ${{ inputs.spark-ref }}
+        run: |
+          proto=crates/spark-connect-proto/proto
+          repo="${REPOSITORY:-$(tr -d '[:space:]' < "${proto}/SPARK_REPO.txt")}"
+          ref="${REF:-$(tr -d '[:space:]' < "${proto}/SPARK_SHA.txt")}"
+          case "${repo}" in
+            http*://*) url="${repo}" ;;
+            *) url="https://github.com/${repo}.git" ;;
+          esac
+          if [[ "${ref}" =~ ^[0-9a-f]{40}$ ]]; then
+            sha="${ref}"
+          else
+            sha="$(git ls-remote "${url}" "${ref}" "refs/heads/${ref}" "refs/tags/${ref}" | awk 'NR == 1 {print $1}')"
+          fi
+          test -n "${sha}" || { echo "::error::${ref} is not a ref of ${url}"; exit 1; }
+          name="$(echo "${url}" | sed -E 's#^https://github.com/##; s#\.git$##; s#[^A-Za-z0-9._-]#-#g')"
+          echo "commit=${url} ${sha}" >> "$GITHUB_OUTPUT"
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          # Bump the version when the build command, profiles or JDK change.
+          echo "key=spark-dist-${name}-${sha}-jdk${JAVA_VERSION}-v1" >> "$GITHUB_OUTPUT"
+          echo "Spark server: ${url} ${sha}"
+
+      - name: Restore the Spark distribution
+        id: dist
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/spark-dist
+          key: ${{ steps.resolve.outputs.key }}
+          lookup-only: true
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        if: steps.dist.outputs.cache-hit != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Restore the dependency caches of the Spark build
+        id: deps
+        if: steps.dist.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.m2/repository
+          # The resolution of a commit is mostly that of its neighbours: restore the newest.
+          key: spark-build-deps-jdk${{ env.JAVA_VERSION }}-${{ steps.resolve.outputs.sha }}
+          restore-keys: spark-build-deps-jdk${{ env.JAVA_VERSION }}-
+
+      - name: Build the Spark Connect distribution
+        if: steps.dist.outputs.cache-hit != 'true'
+        env:
+          SPARK_SRC: ${{ runner.temp }}/spark-src
+          # The sbt of Spark's build reads these; hosted runners have 16 GB.
+          SBT_OPTS: "-Xmx6g -Xss64m -XX:ReservedCodeCacheSize=1g"
+        run: |
+          scripts/build_spark_dist.sh "${{ steps.resolve.outputs.url }}" \
+            "${{ steps.resolve.outputs.sha }}" "${HOME}/spark-dist"
+          rm -rf "${HOME}/spark-dist/src"
+
+      - name: Save the Spark distribution
+        if: steps.dist.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/spark-dist
+          key: ${{ steps.resolve.outputs.key }}
+
+      - name: Save the dependency caches of the Spark build
+        if: steps.dist.outputs.cache-hit != 'true' && steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.m2/repository
+          key: spark-build-deps-jdk${{ env.JAVA_VERSION }}-${{ steps.resolve.outputs.sha }}
+
+  rdd-api:
+    name: RDD API through the drop-in (Spark of the protos)
+    needs: spark-dist
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Restore the Spark distribution
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/spark-dist
+          key: ${{ needs.spark-dist.outputs.key }}
+          fail-on-cache-miss: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache cargo & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-spark-branch-rdd-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-spark-branch-rdd-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Build the Rust extension into the drop-in
+        run: |
+          cargo build -p pyspark-rs --release
+          cp target/release/lib_pyspark.so python/pyspark/_pyspark.so
+
+      - name: Check out the Python tree of the Spark commit
+        # The test files of the RDD API suites and their mixins, and python/test_support, which
+        # some of them read of SPARK_HOME (a sparse, blobless checkout of that one commit).
+        env:
+          COMMIT: ${{ needs.spark-dist.outputs.commit }}
+        run: |
+          read -r url sha <<< "${COMMIT}"
+          src="${RUNNER_TEMP}/spark-src"
+          git init --quiet "${src}"
+          cd "${src}"
+          git remote add origin "${url}"
+          git sparse-checkout set python
+          git fetch --quiet --depth 1 --filter=blob:none origin "${sha}"
+          git checkout --quiet FETCH_HEAD
+          ls python/pyspark/tests/connect/
+
+      - name: Install the Python dependencies of the client and the server's workers
+        # The drop-in's own (pandas, pyarrow, numpy, pyyaml and cloudpickle-rust, of which the
+        # serializers pickle the closures of RDDs), those of the official tests (pytest, py4j,
+        # which the RDD API suites import, and the gRPC packages of the vendored retry policies),
+        # and those of the server's Python workers, which run the same Python.
+        run: |
+          python -m pip install pytest 'pandas>=2.2,<3.0' pyarrow numpy pyyaml 'cloudpickle-rust==0.3.0' \
+            py4j grpcio grpcio-status googleapis-common-protos zstandard 'plotly<6.0.0' graphviz==0.20.3
+
+      - name: Start the Spark Connect server
+        env:
+          PYSPARK_PYTHON: python
+          PYSPARK_DRIVER_PYTHON: python
+        run: |
+          cat "${HOME}/spark-dist/SPARK_COMMIT"
+          SPARK_HOME="$(ls -d "${HOME}"/spark-dist/spark-*-bin-ci-connect)"
+          "${SPARK_HOME}/sbin/start-connect-server.sh" \
+            --master "local[4]" \
+            --driver-memory 3g \
+            --conf spark.sql.session.localRelationSizeLimit=1073741824 \
+            > /tmp/connect-server.log 2>&1 &
+          for i in $(seq 1 120); do
+            if (echo > /dev/tcp/localhost/15002) 2>/dev/null; then
+              echo "Connect server is up (after ${i}s)."; break
+            fi
+            if [ "$i" -eq 120 ]; then echo "Server failed to start:"; cat /tmp/connect-server.log; exit 1; fi
+            sleep 1
+          done
+
+      - name: Drop-in live tests of the RDD API
+        working-directory: python
+        env:
+          SPARK_REMOTE: sc://localhost:15002
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: python -m pytest -q -rs tests/test_rdd_e2e.py
+
+      - name: RDD API suites of the Spark commit through the drop-in
+        # Every pyspark/tests/connect suite of the commit, of its mixins of Spark Classic's
+        # suites, of the drop-in (an overlay of python/ and of the test packages that it lacks),
+        # but the files of scripts/rdd_known_failures.txt.
+        run: |
+          src="${RUNNER_TEMP}/spark-src"
+          only="$(cd "${src}/python" && ls pyspark/tests/connect/test_*.py | sed 's#/#.#g; s#\.py$##' | paste -sd,)"
+          echo "Suites: ${only}"
+          SPARK_HOME="${src}" \
+          RUST_PYSPARK_SO="${GITHUB_WORKSPACE}/python/pyspark/_pyspark.so" \
+          SPARK_CONNECT_TESTING_REMOTE=sc://localhost:15002 \
+            python scripts/run_official_tests.py --dropin --spark "${src}" --jobs 1 \
+              --no-drift-check --manifest scripts/rdd_known_failures.txt --only "${only}"
+
+      - name: Upload the server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-branch-rdd-server-log
+          path: /tmp/connect-server.log
+          if-no-files-found: ignore
+          retention-days: 7
