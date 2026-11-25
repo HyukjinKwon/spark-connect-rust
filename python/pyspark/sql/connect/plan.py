@@ -475,6 +475,22 @@ class LocalRelation(LogicalPlan):
         return bytes(p.local_relation.SerializeToString())
 
     def print(self, indent: int = 0) -> str:
+        # The docstring of PySpark Connect's `LogicalPlan.print`, which `inspect.getdoc` and
+        # `help()` find of its `LocalRelation.print`, of none of its own: the `LogicalPlan`
+        # here has no `print`.
+        """
+        Print the simple string representation of the current :class:`LogicalPlan`.
+
+        Parameters
+        ----------
+        indent : int
+            The number of leading spaces for the output string.
+
+        Returns
+        -------
+        str
+            Simple string representation of this :class:`LogicalPlan`.
+        """
         return f"{' ' * indent}<LocalRelation>\n"
 
     def _repr_html_(self) -> str:
@@ -507,6 +523,22 @@ class ChunkedCachedLocalRelation(LogicalPlan):
         return plan
 
     def print(self, indent: int = 0) -> str:
+        # The docstring of PySpark Connect's `LogicalPlan.print`, which `inspect.getdoc` and
+        # `help()` find of its `ChunkedCachedLocalRelation.print`, of none of its own: the
+        # `LogicalPlan` here has no `print`.
+        """
+        Print the simple string representation of the current :class:`LogicalPlan`.
+
+        Parameters
+        ----------
+        indent : int
+            The number of leading spaces for the output string.
+
+        Returns
+        -------
+        str
+            Simple string representation of this :class:`LogicalPlan`.
+        """
         return f"{' ' * indent}<ChunkedCachedLocalRelation>\n"
 
     def _repr_html_(self) -> str:

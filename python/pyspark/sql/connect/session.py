@@ -42,6 +42,10 @@ from pyspark.sql.connect import observation as _observation  # noqa: F401
 from pyspark.sql.connect import table_arg as _table_arg  # noqa: F401
 from pyspark.sql.connect.conf import RuntimeConf  # noqa: F401
 from pyspark.sql.connect.dataframe import DataFrame  # noqa: F401
+
+# The plans of the local data that `_cache_local_relation` takes and gives, as PySpark Connect's
+# module imports them.
+from pyspark.sql.connect.plan import ChunkedCachedLocalRelation, LocalRelation  # noqa: E402,F401
 from pyspark.sql.connect.readwriter import DataFrameReader  # noqa: F401
 from pyspark.sql.connect.streaming.query import StreamingQueryManager  # noqa: F401
 from pyspark.sql.connect.streaming.readwriter import DataStreamReader  # noqa: F401
@@ -80,7 +84,6 @@ from pyspark.sql.types import (  # noqa: F401
 if TYPE_CHECKING:
     from pyspark.core.connect.context import SparkContext
     from pyspark.sql.connect.catalog import Catalog
-    from pyspark.sql.connect.plan import ChunkedCachedLocalRelation, LocalRelation
     from pyspark.sql.dataframe import DataFrame as ParentDataFrame
 
 __all__ = ["SparkSession"]
@@ -318,8 +321,6 @@ def _cache_local_relation(
 
     Should only be called on a LocalRelation with a non-empty _table.
     """
-    from pyspark.sql.connect.plan import ChunkedCachedLocalRelation
-
     assert local_relation._table is not None, "table cannot be None"
     has_schema = local_relation._schema is not None
 

@@ -204,6 +204,7 @@ class Tree:
         unresolved_imports=None,
         dropped=None,
         dropped_star_imports=None,
+        added_star_imports=None,
         ml_connect=None,
         executed_sources=None,
     ):
@@ -217,6 +218,7 @@ class Tree:
             mock.patch.object(gen, "UNRESOLVED_IMPORTS", unresolved_imports or {}),
             mock.patch.object(gen, "DROPPED", dropped or {}),
             mock.patch.object(gen, "DROPPED_STAR_IMPORTS", dropped_star_imports or {}),
+            mock.patch.object(gen, "ADDED_STAR_IMPORTS", added_star_imports or {}),
             mock.patch.object(
                 gen, "ML_CONNECT_PACKAGE", None if ml_connect is None else "pyspark.ml.connect"
             ),
@@ -702,6 +704,38 @@ class Reader(object):  # type: ignore[misc]
         stale = {"pyspark.sql.proto": {"pyspark.sql.proto.gone": "gone"}}
         with self.assertRaisesRegex(gen.GeneratorError, r"does not star-import: \['pyspark"):
             tree.generate(["pyspark.sql.proto"], dropped_star_imports=stale)
+
+    def test_a_star_import_that_the_stub_adds(self):
+        tree = Tree(self)
+        tree.write(
+            tree.src, "pyspark/sql/proto/__init__.py", "from pyspark.sql.proto.base_pb2 import *\n"
+        )
+        # The drop-in's package exports the messages of a module of the protos that the module of
+        # the tracked version does not star-import.
+        tree.write(tree.repo, "python/pyspark/sql/proto/base_pb2.pyi", "class Plan: ...\n")
+        tree.write(tree.repo, "python/pyspark/sql/proto/rdd_pb2.pyi", "class RDDCommand: ...\n")
+        tree.write(tree.repo, "python/pyspark/sql/proto/__init__.py", "install(globals())\n")
+        rdd = {"pyspark.sql.proto": {"pyspark.sql.proto.rdd_pb2": "the messages of rdd.proto"}}
+        stub = tree.generate(["pyspark.sql.proto"], added_star_imports=rdd)[
+            Path("python/pyspark/sql/proto/__init__.pyi")
+        ]
+        self.assertEqual(
+            body(stub),
+            "\nfrom pyspark.sql.proto.base_pb2 import *\nfrom pyspark.sql.proto.rdd_pb2 import *\n",
+        )
+        # Of a module that PySpark's module star-imports itself, the entry is stale.
+        stale = {"pyspark.sql.proto": {"pyspark.sql.proto.base_pb2": "stale"}}
+        with self.assertRaisesRegex(gen.GeneratorError, r"star-imports pyspark.sql.proto.base_pb2"):
+            tree.generate(["pyspark.sql.proto"], added_star_imports=stale)
+        # Of a module that the drop-in does not have, the import of the stub does not resolve.
+        gone = {"pyspark.sql.proto": {"pyspark.sql.proto.gone_pb2": "gone"}}
+        with self.assertRaisesRegex(
+            gen.GeneratorError, r"does not have: \{'pyspark.sql.proto.gone"
+        ):
+            tree.generate(["pyspark.sql.proto"], added_star_imports=gone)
+        # Of a module of no stub.
+        with self.assertRaisesRegex(gen.GeneratorError, r"ADDED_STAR_IMPORTS of modules without"):
+            tree.generate(["pyspark.sql.other"], added_star_imports=rdd)
 
 
 # PySpark's module of the classes of the native classes of the drop-in's module below: summaries

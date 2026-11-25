@@ -513,3 +513,7 @@ _faulthandler_helper = _FaulthandlerHelper()
 with_faulthandler = _faulthandler_helper.with_faulthandler
 start_faulthandler_periodic_traceback = _faulthandler_helper.start_periodic_traceback
 enable_faulthandler = _faulthandler_helper.enable_faulthandler
+
+# Names of the drop-in's module that PySpark's does not have.
+from typing import Hashable
+def portable_hash(x: Hashable) -> int: ...

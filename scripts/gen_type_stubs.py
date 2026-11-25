@@ -265,6 +265,12 @@ EXTRAS = {
         "SQL_ARROW_TABLE_UDF: int\n"
         "SQL_ARROW_UDTF: int\n"
     ),
+    # The portable hash of the RDD API of Spark Connect, which the commit of the protos moves
+    # from pyspark.core.rdd to pyspark.util, where its vendored modules (pyspark.core.rdd and
+    # pyspark.core.connect.rdd) import it from.
+    "pyspark.util": Extra(
+        "from typing import Hashable\ndef portable_hash(x: Hashable) -> int: ...\n"
+    ),
     # The native classes of the frame bounds, which PySpark's `__all__` does not list as the
     # drop-in's does not, and of the triggers.
     "pyspark.sql.window": Extra("class FrameBound: ...\n"),
@@ -304,14 +310,11 @@ _CONNECT = (
 )
 UNRESOLVED_IMPORTS = {
     "pyspark.core.context.SparkContext": _CLASSIC,
-    "pyspark.core.rdd.RDD": _CLASSIC,
     "pyspark.sql.connect.expressions.CommonInlineUserDefinedFunction": _CONNECT,
     "pyspark.sql.connect.expressions.LambdaFunction": _CONNECT,
     "pyspark.sql.connect.expressions.SortOrder": _CONNECT,
     "pyspark.sql.connect.expressions.SubqueryExpression": _CONNECT,
-    "pyspark.sql.connect.plan.ChunkedCachedLocalRelation": _CONNECT,
     "pyspark.sql.connect.plan.CommonInlineUserDefinedTableFunction": _CONNECT,
-    "pyspark.sql.connect.plan.LocalRelation": _CONNECT,
 }
 
 # The names of PySpark's modules, and members of their classes ("Class.member"), that the
@@ -350,6 +353,19 @@ DROPPED_STAR_IMPORTS = {
         "pyspark.sql.connect.proto.base_pb2_grpc": (
             "the gRPC stubs of the service (SparkConnectServiceStub, ...): the Rust transport "
             "speaks gRPC, so the drop-in has neither the module nor its names"
+        ),
+    },
+}
+
+# The star imports that the stubs add to PySpark's modules, by module, with the reason: of the
+# modules of the protos of the commit of the protos (crates/spark-connect-proto/proto/SPARK_SHA.txt)
+# that the module of the tracked version does not star-import, which the drop-in's package exports
+# at run time (`_EXPORTED` of pyspark/sql/connect/proto/_rust.py), as PySpark's of that commit.
+ADDED_STAR_IMPORTS = {
+    "pyspark.sql.connect.proto": {
+        "pyspark.sql.connect.proto.rdd_pb2": (
+            "the messages of the RDD API of Spark Connect (rdd.proto): RDDCommand and "
+            "RDDCommandResult, which the client of pyspark.core.connect sends and reads"
         ),
     },
 }
@@ -1473,6 +1489,19 @@ def transform(
     if unused:
         raise GeneratorError(f"{module}: ATTRIBUTE_TYPES of no class of PySpark's module: {unused}")
     stmts = _drop(module, stmts, transformer.import_sites)
+    for added in ADDED_STAR_IMPORTS.get(module, {}):
+        if any(
+            isinstance(s, ast.ImportFrom) and s.module == added and s.names[0].name == "*"
+            for s in stmts
+        ):
+            raise GeneratorError(
+                f"{module}: PySpark's module star-imports {added}; drop it from ADDED_STAR_IMPORTS"
+            )
+        stmt = ast.ImportFrom(module=added, names=[ast.alias(name="*")], level=0)
+        stmts.append(stmt)
+        transformer.import_sites.append(
+            ImportSite(stmt=stmt, alias=stmt.names[0], type_checking=False)
+        )
     sites = transformer.import_sites
     extra = EXTRAS.get(module)
     replaced: frozenset[str] = frozenset()
@@ -2368,6 +2397,9 @@ def generate(root: Path, pyspark_src: str, log=print) -> dict[Path, str]:
     unknown = sorted(set(ATTRIBUTE_TYPES) - set(STUB_MODULES))
     if unknown:
         raise GeneratorError(f"ATTRIBUTE_TYPES of modules without a stub: {unknown}")
+    unknown = sorted(set(ADDED_STAR_IMPORTS) - set(STUB_MODULES))
+    if unknown:
+        raise GeneratorError(f"ADDED_STAR_IMPORTS of modules without a stub: {unknown}")
     unknown = sorted(set(DROPPED_STAR_IMPORTS) - set(STUB_MODULES))
     if unknown:
         raise GeneratorError(f"DROPPED_STAR_IMPORTS of modules without a stub: {unknown}")

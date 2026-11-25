@@ -3,11 +3,12 @@ never runs.
 
 PySpark's ``pyspark/__init__.py`` imports SparkContext, RDD and the other classes of a JVM from
 ``pyspark.core`` when not ``is_remote_only()``, which holds of neither client at run time and which
-type checkers do not evaluate, and the official pyspark-client does not ship ``pyspark.core``: so
-mypy takes the names of no type (``Any``), pyright reports the imports of them as of an unknown
+type checkers do not evaluate, and the official pyspark-client 4.3.0 does not ship ``pyspark.core``:
+so mypy takes the names of no type (``Any``), pyright reports the imports of them as of an unknown
 symbol and the attributes as ``Unknown``, and the classic SQLContext, which PySpark's module of
 pyspark.sql.context declares, is typed. With the official pyspark-client 4.3.0 the diagnostics
-are those that the tests expect, and so with the drop-in.
+are those that the tests expect, and so with the drop-in, but of RDD and RDDBarrier: the drop-in
+ships ``pyspark.core.rdd`` of the RDD API of Spark Connect, so type checkers type them.
 """
 
 import pyspark
